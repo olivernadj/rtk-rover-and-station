@@ -78,8 +78,10 @@ The mode is selected at compile time via `build_flags` in `platformio.ini`: `-D 
 
 ## SparkFun GNSS v3 API Notes
 
-- Enable RTCM output: `setVal8(UBLOX_CFG_MSGOUT_RTCM_3X_TYPE1005_I2C, rate)` (not v2's `enableRTCMmessage`)
-- Read RTCM buffer: `setRTCMBufferSize(512)` during init, then `rtcmBufferAvailable()` / `extractRTCMBufferData(buf, n)`
+- Enable RTCM output: use batched `newCfgValset` / `addCfgValset` / `sendCfgValset` for RTCM message types (not individual `setVal8` — batched is more reliable).
+- **Reading RTCM (stationary):** Override the weak `DevUBLOXGNSS::processRTCM(uint8_t incoming)` function to capture RTCM bytes into your own ring buffer. Call `checkUblox()` each loop to pull data from I2C. Do NOT use the library's built-in RTCM buffer (`setRTCMBufferSize` / `rtcmBufferAvailable` / `extractRTCMBufferData`) — it requires `_storageRTCM` to be allocated via `setRTCMLoggingMask()`, which is undocumented and fragile.
+- I2C output protocol: must set `COM_TYPE_UBX | COM_TYPE_NMEA | COM_TYPE_RTCM3` — UBX+RTCM3 alone is not a valid combination (per SparkFun docs). Disable NMEA messages individually via valset after enabling the protocol.
+- `setStaticPosition(lat, latHp, lon, lonHp, alt, altHp, true)` — note the alternating value/high-precision pairs. Getting the argument order wrong causes silent failure (no RTCM output, no error).
 - Push corrections to module (rover): `pushRawData(uint8_t*, size_t)`
 - Survey-in: `enableSurveyMode(uint16_t observationTimeSecs, float accuracyMeters)`
 
@@ -103,3 +105,36 @@ Fields: `lat`, `long`, `alt` (ZED-F9P raw units: degrees×10⁻⁷, mm above ell
 - GNSS: u-blox ZED-F9P connected via I2C (SDA=GPIO 8, SCL=GPIO 9, 400 kHz)
 - RGB LED: onboard NeoPixel on GPIO 48 (status indicator, brightness 32/255)
 - Libraries: SparkFun u-blox GNSS v3 (≥3.1.13), AsyncMqttClient (≥0.9.0), Adafruit NeoPixel (≥1.12.0)
+
+## Troubleshooting (Lessons Learned)
+
+### WiFi won't connect / cycles through all APs
+
+- A `delay(100)` after `WiFi.disconnect(true)` is required before calling `WiFi.begin()`. Without it, the radio hasn't finished teardown and the new connection fails silently.
+- Use a `reconnectScheduled` guard flag to prevent multiple disconnect events from stacking reconnect timers.
+- Use `SYSTEM_EVENT_STA_GOT_IP` / `SYSTEM_EVENT_STA_DISCONNECTED` event names and `WiFi.isConnected()` — these are the proven-working variants on ESP32 Arduino.
+- NTRIP and MQTT must guard their `update()` with `if (!wifiIsConnected()) return;` — otherwise they attempt DNS lookups and connections before WiFi is up, producing misleading error spam.
+
+### NTRIP broadcaster connects but caster drops the connection
+
+**Wrong protocol:** Emlid (and most casters) expect NTRIP v1 `SOURCE <password> /<mountpoint>` — NOT HTTP POST with Basic Auth (NTRIP v2). The caster silently accepts the TCP connection but never responds to a POST request.
+
+**Wrong password field:** For NTRIP v1 SOURCE, the password is the **server/mount password** from the caster dashboard, not a user:password pair. The `NtripCasterConfig.user` field is unused for SOURCE protocol.
+
+**Test from laptop:** `printf "SOURCE <password> /<mountpoint>\r\nSource-Agent: NTRIP Test\r\n\r\n" | curl -v --max-time 10 telnet://caster.emlid.com:2101` — should get `ICY 200 OK`.
+
+**No RTCM data being sent:** The caster will drop the connection after ~15 seconds if no RTCM data arrives. See the RTCM section below.
+
+### ZED-F9P not producing RTCM data (stationary mode)
+
+This was the hardest issue. Multiple things must be correct simultaneously:
+
+1. **I2C output protocol:** `setI2COutput(COM_TYPE_UBX | COM_TYPE_NMEA | COM_TYPE_RTCM3)` — all three are required. UBX+RTCM3 without NMEA is silently invalid. Disable individual NMEA messages via valset afterwards.
+
+2. **RTCM capture method:** The library's built-in RTCM buffer (`setRTCMBufferSize` / `rtcmBufferAvailable`) does NOT work without also calling `setRTCMLoggingMask()`, which allocates the internal `_storageRTCM` struct. Without it, RTCM frames are silently discarded. **Use the `processRTCM` callback instead** — override the weak `DevUBLOXGNSS::processRTCM(uint8_t)` function and store bytes in your own ring buffer. This is the approach used by SparkFun's own NTRIP server example.
+
+3. **`checkUblox()` must be called:** Call `_gnss.checkUblox()` each loop iteration to read data from I2C. Without it, RTCM data stays in the module and `processRTCM` is never invoked. `getPVT()` alone is not sufficient.
+
+4. **`setStaticPosition` argument order:** The signature is `(lat, latHp, lon, lonHp, alt, altHp, lla)` — alternating value and high-precision pairs. Passing `(lat, lon, alt, 0, 0, altHp, true)` compiles without error but overflows `latHp` (int8_t) and the module silently fails to enter TIME mode, producing zero RTCM.
+
+5. **Satellite visibility:** Even with a correct fixed position, the module needs actual satellite signals to generate RTCM corrections. Indoor operation works if the antenna has partial sky view (24 satellites were visible indoors during testing).
