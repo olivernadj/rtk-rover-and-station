@@ -1,0 +1,9 @@
+.pio
+.vscode
+.idea
+cmake-build-*/
+CMakeLists.txt
+CMakeListsPrivate.txt
+src/secrets.h
+src/secrets.cpp
+src/config.h

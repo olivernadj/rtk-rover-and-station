@@ -1,0 +1,54 @@
+#pragma once
+#include <stdint.h>
+#include <stddef.h>
+
+// I2C
+constexpr uint8_t  GNSS_SDA_PIN              = 8;
+constexpr uint8_t  GNSS_SCL_PIN              = 9;
+constexpr uint32_t GNSS_I2C_FREQ             = 400000UL;
+
+// GPS sampling
+constexpr uint32_t GPS_SAMPLE_INTERVAL_MS    = 1000UL;
+
+// MQTT
+constexpr char     MQTT_TOPIC[]              = "mqtt/metrics/v2";
+constexpr uint16_t MQTT_KEEPALIVE            = 60;
+constexpr uint32_t MQTT_RECONNECT_DELAY_MS   = 5000UL;
+
+// NTRIP (shared)
+constexpr uint32_t NTRIP_TIMEOUT_MS          = 10000UL;
+constexpr uint32_t NTRIP_RECONNECT_DELAY_MS  = 5000UL;
+
+// WiFi
+constexpr uint32_t WIFI_RECONNECT_DELAY_MS   = 3000UL;
+
+// NTP
+constexpr char     NTP_SERVER[]              = "pool.ntp.org";
+constexpr long     NTP_GMT_OFFSET_SEC        = 0;
+constexpr int      NTP_DAYLIGHT_OFFSET       = 0;
+
+// Status LED (NeoPixel on GPIO 48)
+constexpr uint8_t  LED_PIN                   = 48;
+constexpr uint32_t LED_CYCLE_MS              = 5000UL;
+constexpr uint32_t LED_BLINK_ON_MS           = 200UL;
+constexpr uint32_t LED_BLINK_OFF_MS          = 200UL;
+
+// JSON metrics buffer
+constexpr size_t   METRICS_BUF_LEN           = 512;
+
+// RTCM read buffer (stationary broadcaster)
+constexpr size_t   RTCM_BUF_LEN              = 512;
+
+// ── Stationary base station position ─────────────────────────────────────────
+// Set USE_FIXED_POSITION to true to skip survey-in and use a known position.
+// Coordinates use ZED-F9P raw units:
+//   lat/lon = degrees × 10⁻⁷   (e.g. 461566930 = 46.1566930°)
+//   alt     = mm above ellipsoid (e.g. 133247 = 133.247 m)
+constexpr bool     USE_FIXED_POSITION         = false;
+constexpr int32_t  FIXED_LAT                  = 0;
+constexpr int32_t  FIXED_LON                  = 0;
+constexpr int32_t  FIXED_ALT_MM               = 0;
+
+// Survey-in settings (used when USE_FIXED_POSITION is false)
+constexpr uint16_t SURVEY_IN_MIN_DURATION_S   = 60;
+constexpr float    SURVEY_IN_ACCURACY_M       = 2.0f;
