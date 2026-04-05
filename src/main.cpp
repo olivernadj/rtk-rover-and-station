@@ -5,6 +5,9 @@
 #include "wifi_manager.h"
 #include "mqtt_manager.h"
 #include "status_led.h"
+#ifdef OTA_ENABLED
+#include "ota_updater.h"
+#endif
 
 #ifdef MODE_STATIONARY
 #include "ntrip_broadcaster.h"
@@ -67,6 +70,10 @@ void setup() {
     display->init();
 #endif
 
+#ifdef OTA_ENABLED
+    otaInit();
+#endif
+
     Serial.println("[MAIN] Setup complete");
 }
 
@@ -109,7 +116,12 @@ void loop() {
         }
     }
 
-    // 5. Update status LED state machine
+#ifdef OTA_ENABLED
+    // 5. Check for OTA firmware update
+    otaUpdate();
+#endif
+
+    // 6. Update status LED state machine
     bool ntripOk;
 #ifdef MODE_STATIONARY
     ntripOk = ntripBroadcasterAnyConnected();

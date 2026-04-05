@@ -39,6 +39,13 @@ constexpr size_t   METRICS_BUF_LEN           = 512;
 // RTCM read buffer (stationary broadcaster)
 constexpr size_t   RTCM_BUF_LEN              = 512;
 
+// OTA firmware update (enabled by -D OTA_ENABLED build flag)
+#ifdef OTA_ENABLED
+constexpr char     OTA_BASE_URL[]             = "https://your-ota-server.example.com";
+constexpr char     OTA_MANIFEST_URL[]         = "https://your-ota-server.example.com/firmware/manifest.json";
+constexpr uint32_t OTA_CHECK_INTERVAL_MS      = 300000UL;  // 5 minutes
+#endif
+
 // ── Stationary base station position ─────────────────────────────────────────
 // Set USE_FIXED_POSITION to true to skip survey-in and use a known position.
 // Coordinates use ZED-F9P raw units:
