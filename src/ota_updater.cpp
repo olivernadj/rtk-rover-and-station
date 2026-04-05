@@ -1,6 +1,7 @@
 #include "ota_updater.h"
 #ifdef OTA_ENABLED
 #include "config.h"
+#include "secrets.h"
 #include "wifi_manager.h"
 #include <Arduino.h>
 #include <WiFi.h>
@@ -19,6 +20,7 @@ static bool checkManifest(String& outUrl, String& outMd5) {
 
     HTTPClient http;
     http.begin(client, String(OTA_MANIFEST_URL));
+    http.setAuthorization(OTA_USER, OTA_PASSWORD);
     http.setTimeout(10000);
     int code = http.GET();
     if (code != 200) {
@@ -78,6 +80,7 @@ static bool performOta(const String& url, const String& expectedMd5) {
 
     HTTPClient http;
     http.begin(client, fullUrl);
+    http.setAuthorization(OTA_USER, OTA_PASSWORD);
     http.setTimeout(60000);
     int code = http.GET();
     if (code != 200) {
