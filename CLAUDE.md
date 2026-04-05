@@ -8,7 +8,7 @@ PlatformIO ESP32-S3 firmware for RTK GNSS positioning using a ZED-F9P module. Th
 - **Stationary** — fixed base station, runs survey-in, generates RTCM corrections and pushes them to one or more NTRIP casters simultaneously, and publishes its position via MQTT.
 - **Rover** — mobile unit (excavator), receives NTRIP RTK corrections for cm-level accuracy, supports pluggable display drivers.
 
-Both modes: read ZED-F9P over I2C, connect to WiFi, sync NTP, publish JSON metrics to MQTT.
+Both modes: read ZED-F9P over I2C, connect to WiFi, sync NTP, publish JSON metrics to MQTT, and optionally self-update via OTA.
 
 ## Build Commands
 
@@ -20,7 +20,9 @@ pio run -e rover -t upload        # Build + flash rover
 pio device monitor --baud 115200  # Serial monitor
 ```
 
-## Secrets Setup
+## Setup
+
+### Secrets
 
 Secrets are gitignored. Copy examples before first build:
 ```bash
@@ -33,9 +35,18 @@ cp src/secrets.cpp.example src/secrets.cpp
 
 **Rover secrets** (`#ifdef MODE_ROVER`): WiFi credentials, MQTT broker, single NTRIP caster fields (`NTRIP_HOST`, `NTRIP_PORT`, `NTRIP_MOUNTPOINT`, `NTRIP_USER`, `NTRIP_PASSWORD`).
 
+**OTA secrets** (`#ifdef OTA_ENABLED`): `OTA_USER` and `OTA_PASSWORD` for HTTP Basic Auth against the OTA server.
+
+### Config
+
+Config is also gitignored (site-specific values like base station coordinates):
+```bash
+cp src/config.h.example src/config.h
+```
+
 ## Architecture
 
-The mode is selected at compile time via `build_flags` in `platformio.ini`: `-D MODE_STATIONARY` or `-D MODE_ROVER`. Mode-specific code is guarded with `#ifdef MODE_STATIONARY` / `#ifdef MODE_ROVER` throughout.
+The mode is selected at compile time via `build_flags` in `platformio.ini`: `-D MODE_STATIONARY` or `-D MODE_ROVER`. OTA is enabled with `-D OTA_ENABLED`. Mode-specific and OTA code is guarded with `#ifdef` throughout.
 
 **Design pattern:** Cooperative multitasking inside Arduino's `loop()`. Each module exposes a non-blocking `update()` call. Time-sensitive reconnections use `Ticker` one-shot timers.
 
@@ -48,23 +59,32 @@ The mode is selected at compile time via `build_flags` in `platformio.ini`: `-D 
 **Rover-only flow:**
 `ntrip_client.cpp` fetches RTCM from caster → pushes bytes to ZED-F9P via `gnssGetHandle().pushRawData()` each loop cycle. `display.h` defines an `IDisplay` abstract interface; the default `NullDisplay` no-ops until a concrete driver is added.
 
+**OTA flow (when enabled):**
+`ota_updater.cpp` polls the manifest URL every 5 min over HTTPS with Basic Auth → compares MD5 → downloads `.bin` → verifies → flashes inactive OTA partition → reboots. See [docs/OTA.md](docs/OTA.md) for full setup instructions including the OTA server.
+
 **Connectivity:** `wifi_manager.cpp` cycles through multiple AP credentials on disconnect. `mqtt_manager.cpp` auto-reconnects when WiFi is available. Both use `Ticker` one-shot timers for reconnection.
 
 **Status LED:** `status_led.cpp` drives the onboard NeoPixel (GPIO 48). Blink burst every 5 s, priority = most severe first:
 - Red 2× = GNSS I2C error
 - Red 1× = no WiFi
 - Yellow 1× = NTP not synced
-- Yellow 2× = NTRIP issue (rover: client down; stationary: all casters disconnected)
+- Yellow 2× = NTRIP issue (rover: client down or corrections stale >60s; stationary: all casters disconnected or corrections stale >30s)
 - Yellow 3× = MQTT down
 - Blue 1× = all OK
 
-**Key config:** I2C pins (SDA=8, SCL=9), GPS sample interval, MQTT topic, NTRIP timeout, LED timing, and buffer sizes are in `src/config.h`.
+**Key config:** I2C pins (SDA=8, SCL=9), GPS sample interval, MQTT topic, NTRIP timeout, LED timing, buffer sizes, and OTA URLs are in `src/config.h`.
+
+## Versioning
+
+`CHANGELOG.md` is the single source of truth for the firmware version. The PlatformIO build script `read_version.py` extracts the latest version (first `## [x.y.z]` heading, skipping `[Unreleased]`) and injects it as `-D FW_VERSION="x.y.z"` at compile time. This version appears in MQTT metrics as the `fw_version` label and in the OTA manifest.
+
+When making changes: update `CHANGELOG.md` first, then build.
 
 ## Source Files
 
 | File | Mode | Purpose |
 |------|------|---------|
-| `src/config.h` | both | Compile-time constants |
+| `src/config.h` | both | Compile-time constants (gitignored; copy from `.example`) |
 | `src/secrets.h` / `.cpp` | both | Credentials (gitignored; copy from `.example` files) |
 | `src/gnss.h` / `.cpp` | both | ZED-F9P I2C driver; stationary also enables RTCM output + survey-in |
 | `src/metrics.h` / `.cpp` | both | JSON payload formatter (stack buffer, no heap) |
@@ -76,6 +96,22 @@ The mode is selected at compile time via `build_flags` in `platformio.ini`: `-D 
 | `src/display.h` | rover | `IDisplay` abstract interface + `NullDisplay` default |
 | `src/ota_updater.h` / `.cpp` | both (opt-in) | Poll-based OTA firmware updater (requires `-D OTA_ENABLED`) |
 | `src/main.cpp` | both | Setup + cooperative loop |
+| `read_version.py` | build | PlatformIO pre-script: injects `FW_VERSION` from `CHANGELOG.md` |
+
+## MQTT Metric Format
+
+Published to `mqtt/metrics/v2` as JSON:
+```json
+{"metric_type":"gauge","samples":{"lat":"461566930","lat_hp":"42","long":"199614664","long_hp":"-15","alt":"133247","corr_age":"0","siv":"24","fix_type":"3","carr_soln":"2"},"timestamp":1775400000,"client":"rtk-stationary","labels":{"device":"esp32s3-314A2C","mode":"stationary","fw_version":"0.5.0","project":"GPS"}}
+```
+
+Key fields:
+- `lat`, `long` — degrees × 10⁻⁷; `lat_hp`, `long_hp` — high-precision digits (× 10⁻⁹, int8)
+- `alt` — mm above ellipsoid
+- `corr_age` — seconds since last RTCM correction sent/received
+- `siv`, `fix_type`, `carr_soln` — satellite count, fix type (0/3/5), carrier solution (0=none, 1=float, 2=fixed)
+- `device` — MAC-derived hostname (e.g. `esp32s3-314A2C`)
+- `fw_version` — from `CHANGELOG.md` via `read_version.py`
 
 ## SparkFun GNSS v3 API Notes
 
@@ -92,207 +128,13 @@ The mode is selected at compile time via `build_flags` in `platformio.ini`: `-D 
 2. Implement `void init()` and `void update(const GnssData& data)`
 3. In `src/main.cpp`, replace `static NullDisplay _nullDisplay; IDisplay* display = &_nullDisplay;` with an instance of your driver
 
-## MQTT Metric Format
-
-Published to `mqtt/metrics/v2` as JSON:
-```json
-{"lat":-337654321,"long":1512345678,"alt":123456,"siv":12,"fix_type":3,"carr_soln":2,"device":"rtk-device-1","mode":"stationary"}
-```
-Fields: `lat`, `long`, `alt` (ZED-F9P raw units: degrees×10⁻⁷, mm above ellipsoid), `siv`, `fix_type`, `carr_soln` (0=none, 1=float RTK, 2=fixed RTK), `device` (hostname), `mode` (stationary/rover).
-
 ## Hardware
 
-- Board: ESP32-S3-DevKitC-1
+- Board: ESP32-S3-DevKitC-1 (WROOM1 N16R8)
 - GNSS: u-blox ZED-F9P connected via I2C (SDA=GPIO 8, SCL=GPIO 9, 400 kHz)
+- Antenna: Multi-band GNSS (L1/L2/L5, GPS/Galileo/GLONASS/BeiDou)
 - RGB LED: onboard NeoPixel on GPIO 48 (status indicator, brightness 32/255)
 - Libraries: SparkFun u-blox GNSS v3 (≥3.1.13), AsyncMqttClient (≥0.9.0), Adafruit NeoPixel (≥1.12.0)
-
-## OTA (Over-The-Air) Firmware Updates
-
-OTA is **opt-in**. It is enabled by adding `-D OTA_ENABLED` to `build_flags` in `platformio.ini`. Without this flag, zero OTA code is compiled — there is no runtime cost and no dependency on an external server.
-
-### How it works
-
-When enabled, the device polls a manifest URL every 5 minutes over HTTPS. The manifest contains an MD5 checksum for each firmware mode. If the checksum differs from the currently running firmware, the device downloads the new `.bin`, verifies its MD5, flashes it to the inactive OTA partition, and reboots.
-
-The first check after a fresh USB flash will always trigger an OTA update (the device has no record of its own MD5). After that, it only updates when the manifest changes.
-
-### Enabling OTA
-
-Add `-D OTA_ENABLED` to `build_flags` in `platformio.ini`:
-
-```ini
-build_flags = -D MODE_STATIONARY -D OTA_ENABLED
-```
-
-Then set your server URL in `src/config.h`:
-
-```cpp
-constexpr char     OTA_BASE_URL[]        = "https://your-ota-server.example.com";
-constexpr char     OTA_MANIFEST_URL[]    = "https://your-ota-server.example.com/firmware/manifest.json";
-constexpr uint32_t OTA_CHECK_INTERVAL_MS = 300000UL;  // 5 minutes
-```
-
-### Disabling OTA
-
-Remove `-D OTA_ENABLED` from `build_flags` (or just don't add it). The OTA source files still exist but compile to nothing.
-
-### Setting up your own OTA server
-
-The OTA server is a simple static file server (nginx) running in Docker. It serves two firmware binaries and a JSON manifest. You can host it anywhere that runs containers — a VPS, a cloud run service, or any Docker-based PaaS.
-
-#### Directory structure
-
-```
-rtk-ota-server/
-├── Dockerfile
-├── nginx.conf
-├── build.sh
-└── firmware/
-    ├── manifest.json
-    ├── stationary.bin
-    └── rover.bin
-```
-
-#### Dockerfile
-
-```dockerfile
-FROM nginx:alpine
-
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY firmware/ /usr/share/nginx/html/firmware/
-
-EXPOSE 8080
-```
-
-#### nginx.conf
-
-```nginx
-server {
-    listen 8080;
-    server_name _;
-
-    root /usr/share/nginx/html;
-
-    location /firmware/ {
-        autoindex off;
-        types {
-            application/octet-stream bin;
-            application/json        json;
-        }
-        default_type application/octet-stream;
-    }
-
-    location /healthz {
-        return 200 'ok';
-        add_header Content-Type text/plain;
-    }
-
-    location / {
-        return 404;
-    }
-}
-```
-
-#### firmware/manifest.json
-
-```json
-{
-  "stationary": {
-    "version": "0.0.1",
-    "url": "/firmware/stationary.bin",
-    "md5": "5a6080e8366aa62f72c0165e75e58c78"
-  },
-  "rover": {
-    "version": "0.0.1",
-    "url": "/firmware/rover.bin",
-    "md5": "c9b3bf096313c96d631c0564c42ba21e"
-  }
-}
-```
-
-The `url` field is a path relative to the server root. The device prepends `OTA_BASE_URL` to form the full download URL. The `version` field is informational (for humans); the device only compares `md5`.
-
-#### build.sh
-
-A helper script that builds both firmwares, copies the `.bin` files, computes MD5 checksums, and updates the manifest. Place it in the OTA server repo as a sibling to the firmware repo:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-FIRMWARE_DIR="$(cd "$(dirname "$0")" && pwd)/firmware"
-RTK_REPO="${1:-$(cd "$(dirname "$0")/../rtk-rover-and-station" && pwd)}"
-
-if [ ! -f "$RTK_REPO/platformio.ini" ]; then
-    echo "Error: Cannot find rtk-rover-and-station repo at $RTK_REPO"
-    echo "Usage: $0 [path-to-rtk-rover-and-station]"
-    exit 1
-fi
-
-echo "==> Building stationary firmware..."
-(cd "$RTK_REPO" && pio run -e stationary)
-cp "$RTK_REPO/.pio/build/stationary/firmware.bin" "$FIRMWARE_DIR/stationary.bin"
-
-echo "==> Building rover firmware..."
-(cd "$RTK_REPO" && pio run -e rover)
-cp "$RTK_REPO/.pio/build/rover/firmware.bin" "$FIRMWARE_DIR/rover.bin"
-
-STATIONARY_MD5=$(md5sum "$FIRMWARE_DIR/stationary.bin" | cut -d' ' -f1)
-ROVER_MD5=$(md5sum "$FIRMWARE_DIR/rover.bin" | cut -d' ' -f1)
-
-CURRENT_VERSION=$(python3 -c "
-import json
-with open('$FIRMWARE_DIR/manifest.json') as f:
-    m = json.load(f)
-v = m.get('stationary', {}).get('version', '0.0.0')
-parts = v.split('.')
-parts[2] = str(int(parts[2]) + 1)
-print('.'.join(parts))
-")
-
-python3 -c "
-import json
-manifest = {
-    'stationary': {
-        'version': '$CURRENT_VERSION',
-        'url': '/firmware/stationary.bin',
-        'md5': '$STATIONARY_MD5'
-    },
-    'rover': {
-        'version': '$CURRENT_VERSION',
-        'url': '/firmware/rover.bin',
-        'md5': '$ROVER_MD5'
-    }
-}
-with open('$FIRMWARE_DIR/manifest.json', 'w') as f:
-    json.dump(manifest, f, indent=2)
-    f.write('\n')
-"
-
-echo "==> Done! version=$CURRENT_VERSION"
-echo "    stationary.bin  md5=$STATIONARY_MD5"
-echo "    rover.bin       md5=$ROVER_MD5"
-echo "Next: commit and push to trigger deployment."
-```
-
-#### Deployment workflow
-
-1. Make firmware changes in `rtk-rover-and-station`
-2. Update `CHANGELOG.md` with the new version and changes — `build.sh` reads the version from here
-3. Run `./build.sh` from the OTA server repo
-4. Commit the updated `.bin` files and `manifest.json`, then push
-5. Your container host rebuilds the Docker image and deploys
-6. Within 5 minutes, devices fetch the new manifest, see the changed MD5, download, verify, flash, and reboot
-
-#### Testing locally
-
-```bash
-docker build -t rtk-ota-server .
-docker run -p 8080:8080 rtk-ota-server
-curl http://localhost:8080/firmware/manifest.json
-curl http://localhost:8080/healthz
-```
 
 ## Troubleshooting (Lessons Learned)
 

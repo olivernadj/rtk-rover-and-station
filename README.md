@@ -9,11 +9,12 @@ Both modes share: ZED-F9P I2C driver, multi-AP WiFi manager, NTP sync, MQTT tele
 
 ## Hardware
 
-| Component | Detail |
-|-----------|--------|
-| MCU | ESP32-S3-DevKitC-1 |
-| GNSS | u-blox ZED-F9P via I2C (SDA=GPIO 8, SCL=GPIO 9, 400 kHz) |
-| Status LED | Onboard NeoPixel on GPIO 48 |
+| Component | Module | Link |
+|-----------|--------|------|
+| MCU | ESP32-S3-WROOM1 N16R8 Dev Board | [<img src="docs/images/esp32-s3.webp" width="80">](https://www.aliexpress.com/item/1005006418608267.html) |
+| GNSS | ZED-F9P Development Board (I2C, SDA=GPIO 8, SCL=GPIO 9, 400 kHz) | [<img src="docs/images/zed-f9p.webp" width="80">](https://www.aliexpress.com/item/1005007991451892.html) |
+| Antenna | Multi-band GNSS Antenna (L1/L2/L5, GPS/Galileo/GLONASS/BeiDou) | [<img src="docs/images/gnss-antenna.webp" width="80">](https://www.aliexpress.com/item/1005006699317206.html) |
+| Status LED | Onboard NeoPixel on GPIO 48 | -- |
 
 ## Quick Start
 
@@ -27,6 +28,12 @@ cp src/secrets.cpp.example src/secrets.cpp
 ```
 
 Edit `src/secrets.cpp` with your WiFi credentials, MQTT broker, and NTRIP caster details.
+
+You also need to copy the config file:
+```bash
+cp src/config.h.example src/config.h
+```
+Edit `src/config.h` to set your base station coordinates and other site-specific constants.
 
 ### 2. Build and flash
 
@@ -73,6 +80,7 @@ NTRIP caster --> ntrip_client.cpp --> ZED-F9P (pushRawData)
 | `ntrip_broadcaster.h` / `.cpp` | stationary | NTRIP v1 SOURCE protocol, simultaneous multi-caster RTCM broadcast |
 | `ntrip_client.h` / `.cpp` | rover | NTRIP correction client |
 | `display.h` | rover | `IDisplay` abstract interface + `NullDisplay` default |
+| `ota_updater.h` / `.cpp` | both (opt-in) | Poll-based OTA firmware updater (requires `-D OTA_ENABLED`) |
 
 ## Configuration
 
@@ -85,6 +93,8 @@ All compile-time constants live in `src/config.h`: I2C pins, GPS sample interval
 **Stationary secrets:** WiFi credentials, MQTT broker, `NtripCasterConfig NTRIP_CASTERS[]` array (host, port, mountpoint, user, password -- one entry per caster).
 
 **Rover secrets:** WiFi credentials, MQTT broker, single NTRIP caster fields.
+
+**OTA secrets** (when `OTA_ENABLED`): `OTA_USER` and `OTA_PASSWORD` for HTTP Basic Auth against your OTA server.
 
 ### Fixed position vs. survey-in
 
@@ -120,24 +130,35 @@ Status is also printed to serial every 5 seconds:
 Published to `mqtt/metrics/v2` as JSON:
 
 ```json
-{"lat":511788630,"long":-18262170,"alt":102000,"siv":24,"fix_type":5,"carr_soln":0,"device":"esp32s3-74696F","mode":"stationary"}
+{"metric_type":"gauge","samples":{"lat":"511788630","lat_hp":"42","long":"-18262170","long_hp":"-15","alt":"102000","corr_age":"0","siv":"24","fix_type":"3","carr_soln":"2"},"timestamp":1775400000,"client":"rtk-stationary","labels":{"device":"esp32s3-74696F","mode":"stationary","fw_version":"0.5.0","project":"GPS"}}
 ```
 
-| Field | Unit | Description |
-|-------|------|-------------|
-| `lat`, `long` | degrees x 10^-7 | e.g. 511788630 = 51.1788630 degrees |
-| `alt` | mm above ellipsoid | e.g. 102000 = 102.000 m |
-| `siv` | count | Satellites in view |
-| `fix_type` | enum | 0=none, 3=3D, 5=time-only |
-| `carr_soln` | enum | 0=none, 1=float RTK, 2=fixed RTK |
-| `device` | string | Hostname |
-| `mode` | string | "stationary" or "rover" |
+| Field | Location | Description |
+|-------|----------|-------------|
+| `lat`, `long` | samples | degrees x 10^-7 (e.g. 511788630 = 51.1788630) |
+| `lat_hp`, `long_hp` | samples | high-precision digits (x 10^-9, int8 range) |
+| `alt` | samples | mm above ellipsoid |
+| `corr_age` | samples | seconds since last RTCM correction sent/received |
+| `siv` | samples | Satellites in view |
+| `fix_type` | samples | 0=none, 3=3D, 5=time-only |
+| `carr_soln` | samples | 0=none, 1=float RTK, 2=fixed RTK |
+| `device` | labels | Hostname (MAC-derived, e.g. esp32s3-314A2C) |
+| `mode` | labels | "stationary" or "rover" |
+| `fw_version` | labels | Firmware version from CHANGELOG.md |
 
 ## Adding a Display Driver (Rover)
 
 1. Create `src/display_<name>.h` subclassing `IDisplay` from `src/display.h`
 2. Implement `void init()` and `void update(const GnssData& data)`
 3. In `src/main.cpp`, replace `NullDisplay` with your driver instance
+
+## OTA (Over-The-Air) Updates
+
+OTA is opt-in. Add `-D OTA_ENABLED` to `build_flags` in `platformio.ini` to enable it. Without this flag, zero OTA code is compiled.
+
+When enabled, the device polls a manifest URL every 5 minutes over HTTPS with Basic Auth. If the firmware MD5 has changed, it downloads, verifies, flashes, and reboots automatically.
+
+Configure the server URL in `src/config.h` and credentials in `src/secrets.cpp`. See [docs/OTA.md](docs/OTA.md) for full instructions on setting up your own OTA server.
 
 ## Dependencies
 
