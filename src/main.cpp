@@ -92,6 +92,11 @@ void loop() {
         _ntpSynced = isNtpSynced();
     }
 
+#ifdef MODE_STATIONARY
+    // Update correction age from broadcaster (seconds since last successful RTCM push)
+    gnssSetCorrAge(ntripBroadcasterCorrAgeSec());
+#endif
+
     // 4. Publish metrics at configured interval
     if (now - _lastPublish >= GPS_SAMPLE_INTERVAL_MS) {
         _lastPublish = now;
@@ -109,7 +114,7 @@ void loop() {
 #ifdef MODE_STATIONARY
     ntripOk = ntripBroadcasterAnyConnected();
 #elif defined(MODE_ROVER)
-    ntripOk = ntripIsConnected();
+    ntripOk = ntripIsConnected() && gnssGetData().corr_age < 60;
 #else
     ntripOk = true;
 #endif

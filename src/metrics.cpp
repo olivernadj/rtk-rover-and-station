@@ -18,6 +18,7 @@ static const char* msgTemplate =
         "\"long\":\"%ld\","
         "\"long_hp\":\"%d\","
         "\"alt\":\"%ld\","
+        "\"corr_age\":\"%u\","
         "\"siv\":\"%d\","
         "\"fix_type\":\"%d\","
         "\"carr_soln\":\"%d\""
@@ -41,6 +42,7 @@ size_t metricsFormat(char* buf, size_t len, const GnssData& data) {
         (long)data.lon,
         (int)data.lonHp,
         (long)data.alt,
+        (unsigned)data.corr_age,
         (int)data.siv,
         (int)data.fix_type,
         (int)data.carr_soln,

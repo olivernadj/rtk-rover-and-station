@@ -97,12 +97,23 @@ void gnssUpdate() {
         _data.siv       = _gnss.getSIV();
         _data.fix_type  = _gnss.getFixType();
         _data.carr_soln = _gnss.getCarrierSolutionType();
+
+#ifdef MODE_ROVER
+        // Convert lastCorrectionAge enum (4-bit) to upper-bound seconds
+        static const uint16_t ageToSec[] = {
+            0, 1, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120, 0xFFFF
+        };
+        uint8_t ageIdx = _gnss.packetUBXNAVPVT->data.flags3.bits.lastCorrectionAge;
+        _data.corr_age = (ageIdx < 13) ? ageToSec[ageIdx] : 0xFFFF;
+#endif
+
         _data.valid     = true;
     }
 }
 
-const GnssData& gnssGetData()  { return _data; }
-bool            gnssHasError() { return _error; }
+const GnssData& gnssGetData()     { return _data; }
+void            gnssSetCorrAge(uint16_t seconds) { _data.corr_age = seconds; }
+bool            gnssHasError()    { return _error; }
 SFE_UBLOX_GNSS& gnssGetHandle() { return _gnss; }
 
 #ifdef MODE_STATIONARY
