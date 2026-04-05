@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-05
+
 ### Added
+- Firmware version (`fw_version`) label in MQTT metrics payload, read from CHANGELOG.md at build time
 - OTA (Over-The-Air) firmware update support, opt-in via `-D OTA_ENABLED` build flag
 - Device polls a manifest URL every 5 minutes, compares MD5, and auto-updates
 
@@ -36,7 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - NeoPixel status LED with priority-based blink patterns
 - NTP time synchronisation
 
-[Unreleased]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/olivernadj/rtk-rover-and-station/releases/tag/v0.1.0

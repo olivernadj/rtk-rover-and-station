@@ -28,6 +28,7 @@ static const char* msgTemplate =
       "\"labels\":{"
         "\"device\":\"%s\","
         "\"mode\":\"%s\","
+        "\"fw_version\":\"%s\","
         "\"project\":\"GPS\""
       "}"
     "}";
@@ -49,7 +50,8 @@ size_t metricsFormat(char* buf, size_t len, const GnssData& data) {
         (long)now,
         MODE_STR,
         WiFi.getHostname(),
-        MODE_STR
+        MODE_STR,
+        FW_VERSION
     );
     if (n < 0 || (size_t)n >= len) return 0;
     return (size_t)n;
