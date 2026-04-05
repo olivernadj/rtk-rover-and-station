@@ -38,6 +38,7 @@ bool gnssInit() {
     _gnss.setI2COutput(COM_TYPE_UBX | COM_TYPE_NMEA | COM_TYPE_RTCM3);
     _gnss.setNavigationFrequency(1);        // 1 Hz matches GPS_SAMPLE_INTERVAL_MS
     _gnss.setAutoPVT(true);                 // push PVT automatically; getPVT() is non-blocking
+    _gnss.setAutoHPPOSLLH(true);            // enable NAV-HPPOSLLH for high-res lat/lon
 
 #ifdef MODE_STATIONARY
     // Disable NMEA on I2C (we only needed it enabled for the port protocol)
@@ -88,8 +89,10 @@ void gnssUpdate() {
     if (_error) return;
 
     if (_gnss.getPVT()) {
-        _data.lat       = _gnss.getLatitude();
-        _data.lon       = _gnss.getLongitude();
+        _data.lat       = _gnss.getHighResLatitude();
+        _data.latHp     = _gnss.getHighResLatitudeHp();
+        _data.lon       = _gnss.getHighResLongitude();
+        _data.lonHp     = _gnss.getHighResLongitudeHp();
         _data.alt       = _gnss.getAltitude();
         _data.siv       = _gnss.getSIV();
         _data.fix_type  = _gnss.getFixType();

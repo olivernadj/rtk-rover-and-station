@@ -3,6 +3,7 @@
 #include "secrets.h"
 #include <WiFi.h>
 #include <Ticker.h>
+#include <esp_mac.h>
 
 static WifiEventCallback _onConnect;
 static WifiEventCallback _onDisconnect;
@@ -10,12 +11,21 @@ static Ticker            _reconnectTicker;
 static int               _apIndex = 0;
 static bool              _reconnectScheduled = false;
 
+static void setHostnameFromMac() {
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    char name[20];
+    snprintf(name, sizeof(name), "esp32s3-%02X%02X%02X", mac[3], mac[4], mac[5]);
+    WiFi.setHostname(name);
+}
+
 static void startConnect() {
     _reconnectScheduled = false;
     Serial.printf("[WIFI] Connecting to AP #%d: \"%s\"\n",
                   _apIndex, WIFI_CREDENTIALS[_apIndex].ssid);
     WiFi.disconnect(true);
     delay(100);
+    setHostnameFromMac();
     WiFi.begin(WIFI_CREDENTIALS[_apIndex].ssid,
                WIFI_CREDENTIALS[_apIndex].password);
     _apIndex = (_apIndex + 1) % WIFI_CREDENTIAL_COUNT;

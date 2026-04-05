@@ -8,7 +8,9 @@ class SFE_UBLOX_GNSS;
 
 struct GnssData {
     int32_t  lat;       // degrees × 10^-7
+    int8_t   latHp;     // additional degrees × 10^-9 (high-precision component)
     int32_t  lon;       // degrees × 10^-7
+    int8_t   lonHp;     // additional degrees × 10^-9 (high-precision component)
     int32_t  alt;       // mm above ellipsoid
     uint8_t  siv;       // satellites in view
     uint8_t  fix_type;  // 0=no fix, 2=2D, 3=3D, 4=GNSS+DR, 5=time only

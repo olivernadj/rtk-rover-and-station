@@ -14,7 +14,9 @@ static const char* msgTemplate =
       "\"metric_type\":\"gauge\","
       "\"samples\":{"
         "\"lat\":\"%ld\","
+        "\"lat_hp\":\"%d\","
         "\"long\":\"%ld\","
+        "\"long_hp\":\"%d\","
         "\"alt\":\"%ld\","
         "\"siv\":\"%d\","
         "\"fix_type\":\"%d\","
@@ -35,7 +37,9 @@ size_t metricsFormat(char* buf, size_t len, const GnssData& data) {
 
     int n = snprintf(buf, len, msgTemplate,
         (long)data.lat,
+        (int)data.latHp,
         (long)data.lon,
+        (int)data.lonHp,
         (long)data.alt,
         (int)data.siv,
         (int)data.fix_type,
