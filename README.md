@@ -130,7 +130,7 @@ Status is also printed to serial every 5 seconds:
 Published to `mqtt/metrics/v2` as JSON:
 
 ```json
-{"metric_type":"gauge","samples":{"lat":"511788630","lat_hp":"42","long":"-18262170","long_hp":"-15","alt":"102000","corr_age":"0","siv":"24","fix_type":"3","carr_soln":"2"},"timestamp":1775400000,"client":"rtk-stationary","labels":{"device":"esp32s3-74696F","mode":"stationary","fw_version":"0.5.0","project":"GPS"}}
+{"metric_type":"gauge","samples":{"lat":"511788630","lat_hp":"42","long":"-18262170","long_hp":"-15","alt":"102000","corr_age":"0","siv":"24","fix_type":"3","carr_soln":"2","wifi_rssi":"-52"},"timestamp":1775400000,"client":"rtk-stationary","labels":{"device":"esp32s3-74696F","mode":"stationary","fw_version":"0.6.0","wifi_ssid":"MyNetwork","project":"GPS"}}
 ```
 
 | Field | Location | Description |
@@ -138,13 +138,15 @@ Published to `mqtt/metrics/v2` as JSON:
 | `lat`, `long` | samples | degrees x 10^-7 (e.g. 511788630 = 51.1788630) |
 | `lat_hp`, `long_hp` | samples | high-precision digits (x 10^-9, int8 range) |
 | `alt` | samples | mm above ellipsoid |
-| `corr_age` | samples | seconds since last RTCM correction sent/received |
+| `corr_age` | samples | Stationary: seconds since last RTCM push to caster. Rover: seconds since last RTK-corrected position |
 | `siv` | samples | Satellites in view |
 | `fix_type` | samples | 0=none, 3=3D, 5=time-only |
 | `carr_soln` | samples | 0=none, 1=float RTK, 2=fixed RTK |
+| `wifi_rssi` | samples | WiFi signal strength in dBm |
 | `device` | labels | Hostname (MAC-derived, e.g. esp32s3-314A2C) |
 | `mode` | labels | "stationary" or "rover" |
 | `fw_version` | labels | Firmware version from CHANGELOG.md |
+| `wifi_ssid` | labels | Connected WiFi access point name |
 
 ## Adding a Display Driver (Rover)
 

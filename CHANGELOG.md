@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-06
+
+### Added
+- WiFi SSID (`wifi_ssid`) label and signal strength (`wifi_rssi`) sample in MQTT metrics payload
+- Device hostname in User-Agent for NTRIP and OTA HTTP clients
+
+### Changed
+- Rover caches last RTK-corrected position (carr_soln > 0) and keeps publishing it when corrections stop
+- Rover `corr_age` now represents seconds since last RTK-quality fix, not raw ZED-F9P correction age
+
+### Fixed
+- Stationary `corr_age` spiking to 65535 on startup before first RTCM push
+
 ## [0.5.0] - 2026-04-05
 
 ### Added
@@ -45,7 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - NeoPixel status LED with priority-based blink patterns
 - NTP time synchronisation
 
-[Unreleased]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.2.0...v0.3.0

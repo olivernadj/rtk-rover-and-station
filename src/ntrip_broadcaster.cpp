@@ -5,6 +5,7 @@
 #include "secrets.h"
 #include "gnss.h"
 #include "wifi_manager.h"
+#include <WiFi.h>
 #include <WiFiClient.h>
 #include <Arduino.h>
 
@@ -39,7 +40,7 @@ static void casterConnect(int idx) {
     // NTRIP v1 SOURCE protocol (used by Emlid and most casters)
     String request =
         String("SOURCE ") + cfg.password + " /" + cfg.mountpoint + "\r\n" +
-        "Source-Agent: NTRIP ESP32Caster/1.0\r\n" +
+        "Source-Agent: NTRIP ESP32Caster/1.0 (" + WiFi.getHostname() + ")\r\n" +
         "\r\n";
     c.client.print(request);
     c.state      = NtripState::HANDSHAKING;
@@ -155,7 +156,7 @@ bool ntripBroadcasterAnyConnected() {
 }
 
 uint16_t ntripBroadcasterCorrAgeSec() {
-    if (_lastSuccessfulPushMs == 0) return 0xFFFF;
+    if (_lastSuccessfulPushMs == 0) return 0;
     uint32_t elapsed = (millis() - _lastSuccessfulPushMs) / 1000;
     return (elapsed < 0xFFFF) ? (uint16_t)elapsed : 0xFFFF;
 }

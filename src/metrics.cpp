@@ -21,7 +21,8 @@ static const char* msgTemplate =
         "\"corr_age\":\"%u\","
         "\"siv\":\"%d\","
         "\"fix_type\":\"%d\","
-        "\"carr_soln\":\"%d\""
+        "\"carr_soln\":\"%d\","
+        "\"wifi_rssi\":\"%d\""
       "},"
       "\"timestamp\":%ld,"
       "\"client\":\"rtk-%s\","
@@ -29,6 +30,7 @@ static const char* msgTemplate =
         "\"device\":\"%s\","
         "\"mode\":\"%s\","
         "\"fw_version\":\"%s\","
+        "\"wifi_ssid\":\"%s\","
         "\"project\":\"GPS\""
       "}"
     "}";
@@ -36,6 +38,8 @@ static const char* msgTemplate =
 size_t metricsFormat(char* buf, size_t len, const GnssData& data) {
     time_t now;
     time(&now);
+
+    String ssid = WiFi.SSID();
 
     int n = snprintf(buf, len, msgTemplate,
         (long)data.lat,
@@ -47,11 +51,13 @@ size_t metricsFormat(char* buf, size_t len, const GnssData& data) {
         (int)data.siv,
         (int)data.fix_type,
         (int)data.carr_soln,
+        (int)WiFi.RSSI(),
         (long)now,
         MODE_STR,
         WiFi.getHostname(),
         MODE_STR,
-        FW_VERSION
+        FW_VERSION,
+        ssid.c_str()
     );
     if (n < 0 || (size_t)n >= len) return 0;
     return (size_t)n;

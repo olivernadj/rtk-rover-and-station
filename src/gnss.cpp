@@ -25,6 +25,12 @@ static SFE_UBLOX_GNSS _gnss;
 static GnssData _data  = {};
 static bool     _error = false;
 
+#ifdef MODE_ROVER
+static GnssData  _cachedBest       = {};
+static bool      _cacheValid       = false;
+static uint32_t  _cacheTimestampMs = 0;
+#endif
+
 bool gnssInit() {
     Wire.begin(GNSS_SDA_PIN, GNSS_SCL_PIN);
     Wire.setClock(GNSS_I2C_FREQ);
@@ -105,13 +111,28 @@ void gnssUpdate() {
         };
         uint8_t ageIdx = _gnss.packetUBXNAVPVT->data.flags3.bits.lastCorrectionAge;
         _data.corr_age = (ageIdx < 13) ? ageToSec[ageIdx] : 0xFFFF;
+
+        if (_data.carr_soln > 0) {
+            _cachedBest       = _data;
+            _cacheValid       = true;
+            _cacheTimestampMs = millis();
+        }
 #endif
 
         _data.valid     = true;
     }
 }
 
-const GnssData& gnssGetData()     { return _data; }
+const GnssData& gnssGetData() {
+#ifdef MODE_ROVER
+    if (_cacheValid) {
+        uint32_t elapsed = (millis() - _cacheTimestampMs) / 1000;
+        _cachedBest.corr_age = (elapsed < 0xFFFF) ? (uint16_t)elapsed : 0xFFFE;
+        return _cachedBest;
+    }
+#endif
+    return _data;
+}
 void            gnssSetCorrAge(uint16_t seconds) { _data.corr_age = seconds; }
 bool            gnssHasError()    { return _error; }
 SFE_UBLOX_GNSS& gnssGetHandle() { return _gnss; }

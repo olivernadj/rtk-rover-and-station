@@ -6,6 +6,7 @@
 #include "gnss.h"
 #include "wifi_manager.h"
 #include <SparkFun_u-blox_GNSS_v3.h>
+#include <WiFi.h>
 #include <WiFiClient.h>
 #include <Arduino.h>
 
@@ -64,7 +65,7 @@ static void startConnect() {
         String("GET /") + NTRIP_MOUNTPOINT + " HTTP/1.1\r\n" +
         "Host: " + NTRIP_HOST + "\r\n" +
         "Ntrip-Version: Ntrip/2.0\r\n" +
-        "User-Agent: NTRIP ESP32Client/1.0\r\n" +
+        "User-Agent: NTRIP ESP32Client/1.0 (" + WiFi.getHostname() + ")\r\n" +
         "Authorization: Basic " + credentials + "\r\n" +
         "Connection: close\r\n\r\n";
     _client.print(request);

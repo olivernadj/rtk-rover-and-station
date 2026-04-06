@@ -8,7 +8,7 @@ constexpr uint8_t  GNSS_SCL_PIN              = 9;
 constexpr uint32_t GNSS_I2C_FREQ             = 400000UL;
 
 // GPS sampling
-constexpr uint32_t GPS_SAMPLE_INTERVAL_MS    = 1000UL;
+constexpr uint32_t GPS_SAMPLE_INTERVAL_MS    = 10000UL;
 
 // MQTT
 constexpr char     MQTT_TOPIC[]              = "mqtt/metrics/v2";

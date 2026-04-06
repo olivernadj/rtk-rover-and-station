@@ -20,6 +20,7 @@ static bool checkManifest(String& outUrl, String& outMd5) {
 
     HTTPClient http;
     http.begin(client, String(OTA_MANIFEST_URL));
+    http.setUserAgent(String("OTA-ESP32/1.0 (") + WiFi.getHostname() + ")");
     http.setAuthorization(OTA_USER, OTA_PASSWORD);
     http.setTimeout(10000);
     int code = http.GET();
@@ -80,6 +81,7 @@ static bool performOta(const String& url, const String& expectedMd5) {
 
     HTTPClient http;
     http.begin(client, fullUrl);
+    http.setUserAgent(String("OTA-ESP32/1.0 (") + WiFi.getHostname() + ")");
     http.setAuthorization(OTA_USER, OTA_PASSWORD);
     http.setTimeout(60000);
     int code = http.GET();
