@@ -53,6 +53,7 @@ static uint32_t    _reconnectAfter = 0;
 static uint8_t     _rtcmBuf[RTCM_BUF_LEN];
 
 static void startConnect() {
+    _client.stop();
     _client.setTimeout(3000);
     if (!_client.connect(NTRIP_HOST, NTRIP_PORT)) {
         _state          = NtripState::DISCONNECTED;
@@ -66,8 +67,7 @@ static void startConnect() {
         "Host: " + NTRIP_HOST + "\r\n" +
         "Ntrip-Version: Ntrip/2.0\r\n" +
         "User-Agent: NTRIP ESP32Client/1.0 (" + WiFi.getHostname() + ")\r\n" +
-        "Authorization: Basic " + credentials + "\r\n" +
-        "Connection: close\r\n\r\n";
+        "Authorization: Basic " + credentials + "\r\n\r\n";
     _client.print(request);
     _state      = NtripState::HANDSHAKING;
     _lastDataMs = millis();
@@ -155,6 +155,12 @@ void ntripUpdate() {
 
 bool ntripIsConnected() {
     return _state == NtripState::STREAMING;
+}
+
+void ntripOnWifiDisconnect() {
+    _client.stop();
+    _state          = NtripState::DISCONNECTED;
+    _reconnectAfter = 0;
 }
 
 #endif // MODE_ROVER

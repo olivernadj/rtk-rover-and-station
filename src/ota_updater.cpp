@@ -3,6 +3,10 @@
 #include "config.h"
 #include "secrets.h"
 #include "wifi_manager.h"
+#include "mqtt_manager.h"
+#ifdef MODE_ROVER
+#include "ntrip_client.h"
+#endif
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -10,7 +14,6 @@
 #include <Update.h>
 
 static uint32_t _lastCheck = 0;
-static char     _runningMd5[33] = "";   // MD5 of currently running firmware
 
 // Fetch manifest JSON, extract md5 and url for our mode.
 // Returns true if a new firmware is available (md5 differs from running).
@@ -65,8 +68,17 @@ static bool checkManifest(String& outUrl, String& outMd5) {
         return false;
     }
 
-    if (outMd5.equalsIgnoreCase(_runningMd5)) {
-        return false;  // Same version
+    // Compare version string from manifest against compiled-in FW_VERSION.
+    int verKey = body.indexOf("\"version\"", modePos);
+    if (verKey >= 0) {
+        int verStart = body.indexOf('"', verKey + 9) + 1;
+        int verEnd   = body.indexOf('"', verStart);
+        if (verStart > 0 && verEnd > verStart) {
+            String manifestVer = body.substring(verStart, verEnd);
+            if (manifestVer.equals(FW_VERSION)) {
+                return false;   // Same version already running
+            }
+        }
     }
 
     return true;
@@ -128,10 +140,9 @@ static bool performOta(const String& url, const String& expectedMd5) {
 }
 
 void otaInit() {
-    _runningMd5[0] = '\0';
     _lastCheck = millis();
-    Serial.println("[OTA] Initialised, first check in " +
-                   String(OTA_CHECK_INTERVAL_MS / 1000) + "s");
+    Serial.printf("[OTA] Initialised (fw: %s), first check in %lus\n",
+                  FW_VERSION, OTA_CHECK_INTERVAL_MS / 1000);
 }
 
 void otaUpdate() {
@@ -151,8 +162,14 @@ void otaUpdate() {
 
     Serial.printf("[OTA] New firmware available (md5: %s)\n", md5.c_str());
 
+    Serial.println("[OTA] Stopping network services before flash...");
+    mqttOnWifiDisconnect();
+#ifdef MODE_ROVER
+    ntripOnWifiDisconnect();
+#endif
+    delay(100);  // Let async TCP task settle
+
     if (performOta(url, md5)) {
-        strncpy(_runningMd5, md5.c_str(), sizeof(_runningMd5) - 1);
         Serial.println("[OTA] Rebooting in 2 seconds...");
         delay(2000);
         ESP.restart();

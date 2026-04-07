@@ -46,6 +46,9 @@ static void onWifiConnect() {
 static void onWifiDisconnect() {
     _ntpSynced = false;
     mqttOnWifiDisconnect();
+#ifdef MODE_ROVER
+    ntripOnWifiDisconnect();
+#endif
 }
 
 // ── Arduino setup / loop ─────────────────────────────────────────────────────

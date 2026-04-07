@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-07
+
+### Changed
+- OTA update check compares manifest `version` field against compiled-in `FW_VERSION` instead of MD5 — `ESP.getSketchMD5()` differs from file-level MD5 due to ESP32 image format
+- OTA check interval reduced to 1 minute
+
+### Fixed
+- NTRIP client sent `Connection: close` header, causing the caster to drop the RTCM stream and triggering repeated reconnect cycles with RTK loss
+- Socket leak in NTRIP client reconnection path causing ESP32 crashes every ~20 minutes
+- Missing NTRIP cleanup on WiFi disconnect leaving stale sockets
+- OTA flash corruption ("Image hash failed") — disconnect MQTT and NTRIP before OTA download to prevent AsyncMqttClient TCP task from interfering with flash writes
+- Duplicate `[WIFI] Disconnected` log spam during AP cycling — only log and act on the first disconnect event per reconnect cycle
+
 ## [0.6.0] - 2026-04-06
 
 ### Added
@@ -58,7 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - NeoPixel status LED with priority-based blink patterns
 - NTP time synchronisation
 
-[Unreleased]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.3.0...v0.4.0

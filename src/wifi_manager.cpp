@@ -42,9 +42,9 @@ static void onWiFiEvent(WiFiEvent_t event) {
             break;
         }
         case SYSTEM_EVENT_STA_DISCONNECTED:
-            Serial.printf("[WIFI] Disconnected\n");
-            if (_onDisconnect) _onDisconnect();
             if (!_reconnectScheduled) {
+                Serial.println("[WIFI] Disconnected");
+                if (_onDisconnect) _onDisconnect();
                 _reconnectScheduled = true;
                 _reconnectTicker.once(5, startConnect);
             }
