@@ -29,6 +29,8 @@ static bool     _error = false;
 static GnssData  _cachedBest       = {};
 static bool      _cacheValid       = false;
 static uint32_t  _cacheTimestampMs = 0;
+static uint32_t  _corrPushMs[2]    = {0, 0};   // last two pushRawData timestamps
+static bool      _corrPushInit     = false;     // true after first push
 #endif
 
 bool gnssInit() {
@@ -112,10 +114,26 @@ void gnssUpdate() {
         uint8_t ageIdx = _gnss.packetUBXNAVPVT->data.flags3.bits.lastCorrectionAge;
         _data.corr_age = (ageIdx < 13) ? ageToSec[ageIdx] : 0xFFFF;
 
-        if (_data.carr_soln > 0) {
-            _cachedBest       = _data;
-            _cacheValid       = true;
-            _cacheTimestampMs = millis();
+        // Cache position only when RTK-corrected AND corrections were pushed
+        // recently enough (between 1 s and GPS_ACCEPTABLE_CORR_AGE_MS ago).
+        // Check both the most recent and one-prior push timestamps so that a
+        // brand-new push (< 1 s) doesn't disqualify us while the previous one
+        // is still in the valid window.
+        if (_data.carr_soln > 0 && _corrPushInit) {
+            uint32_t now = millis();
+            bool pushOk = false;
+            for (int i = 0; i < 2; i++) {
+                uint32_t age = now - _corrPushMs[i];
+                if (age >= 1000 && age <= GPS_ACCEPTABLE_CORR_AGE_MS) {
+                    pushOk = true;
+                    break;
+                }
+            }
+            if (pushOk) {
+                _cachedBest       = _data;
+                _cacheValid       = true;
+                _cacheTimestampMs = millis();
+            }
         }
 #endif
 
@@ -133,6 +151,13 @@ const GnssData& gnssGetData() {
 #endif
     return _data;
 }
+#ifdef MODE_ROVER
+void gnssNotifyCorrPush() {
+    _corrPushMs[1] = _corrPushMs[0];
+    _corrPushMs[0] = millis();
+    _corrPushInit  = true;
+}
+#endif
 void            gnssSetCorrAge(uint16_t seconds) { _data.corr_age = seconds; }
 bool            gnssHasError()    { return _error; }
 SFE_UBLOX_GNSS& gnssGetHandle() { return _gnss; }

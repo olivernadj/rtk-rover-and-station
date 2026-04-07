@@ -122,6 +122,7 @@ static void processStream() {
     size_t nRead  = _client.read(_rtcmBuf, toRead);
     if (nRead > 0) {
         gnssGetHandle().pushRawData(_rtcmBuf, nRead);
+        gnssNotifyCorrPush();
         _lastDataMs = millis();
     }
 }

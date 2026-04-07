@@ -14,6 +14,9 @@
 #include <Update.h>
 
 static uint32_t _lastCheck = 0;
+static uint8_t  _failCount = 0;
+static String   _lastFailedMd5;
+static const uint8_t OTA_MAX_RETRIES = 3;
 
 // Fetch manifest JSON, extract md5 and url for our mode.
 // Returns true if a new firmware is available (md5 differs from running).
@@ -121,20 +124,55 @@ static bool performOta(const String& url, const String& expectedMd5) {
     Update.setMD5(expectedMd5.c_str());
 
     WiFiClient* stream = http.getStreamPtr();
-    size_t written = Update.writeStream(*stream);
-    http.end();
+    uint8_t buf[2048];
+    size_t written = 0;
+    uint32_t lastActivity = millis();
+
+    while (written < (size_t)contentLen) {
+        size_t avail = stream->available();
+        if (avail == 0) {
+            if (millis() - lastActivity > 30000) {
+                Serial.println("[OTA] Download timeout (30s no data)");
+                break;
+            }
+            delay(10);
+            continue;
+        }
+        size_t toRead = min(avail, sizeof(buf));
+        size_t bytesRead = stream->readBytes(buf, toRead);
+        if (bytesRead == 0) break;
+        size_t bytesWritten = Update.write(buf, bytesRead);
+        if (bytesWritten != bytesRead) {
+            Serial.printf("[OTA] Flash write error at %u bytes\n", written);
+            break;
+        }
+        written += bytesWritten;
+        lastActivity = millis();
+        delay(2);  // Yield to RTOS — prevents SPI flash/PSRAM bus contention
+        if (written % (100 * 1024) < sizeof(buf)) {
+            Serial.printf("[OTA] Progress: %u / %d bytes (%u%%)\n",
+                          written, contentLen, (written * 100) / contentLen);
+        }
+    }
 
     if (written != (size_t)contentLen) {
-        Serial.printf("[OTA] Written %u / %d bytes\n", written, contentLen);
+        Serial.printf("[OTA] Incomplete: %u / %d bytes\n", written, contentLen);
+        http.end();
         Update.abort();
         return false;
     }
 
+    // Verify and finalise BEFORE tearing down TLS — http.end() triggers
+    // heavy PSRAM/heap activity that can corrupt the flash read-back
+    // performed by esp_image_verify() inside Update.end().
+    Serial.printf("[OTA] Download complete, verifying image...\n");
     if (!Update.end()) {
         Serial.printf("[OTA] Update failed: %s\n", Update.errorString());
+        http.end();
         return false;
     }
 
+    http.end();
     Serial.println("[OTA] Update successful!");
     return true;
 }
@@ -162,6 +200,15 @@ void otaUpdate() {
 
     Serial.printf("[OTA] New firmware available (md5: %s)\n", md5.c_str());
 
+    if (md5 != _lastFailedMd5) {
+        _failCount = 0;  // New firmware on server, reset retries
+    }
+
+    if (_failCount >= OTA_MAX_RETRIES) {
+        Serial.printf("[OTA] Skipping — %d consecutive failures, waiting for new manifest\n", _failCount);
+        return;
+    }
+
     Serial.println("[OTA] Stopping network services before flash...");
     mqttOnWifiDisconnect();
 #ifdef MODE_ROVER
@@ -173,6 +220,10 @@ void otaUpdate() {
         Serial.println("[OTA] Rebooting in 2 seconds...");
         delay(2000);
         ESP.restart();
+    } else {
+        _failCount++;
+        _lastFailedMd5 = md5;
+        Serial.printf("[OTA] Failure %d/%d\n", _failCount, OTA_MAX_RETRIES);
     }
 }
 

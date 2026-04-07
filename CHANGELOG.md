@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-04-07
+
+### Fixed
+- OTA "Image hash failed" — verify and finalise flash before TLS teardown to avoid SPI bus contention during `esp_image_verify()` read-back; reduce write buffer to 2 KB and increase RTOS yield
+
+## [0.7.3] - 2026-04-07
+
+### Changed
+- Rover GNSS cache requires recent RTCM push (1–5 s window) in addition to `carr_soln > 0`, preventing stale cached positions when corrections stop flowing
+
+### Added
+- `GPS_ACCEPTABLE_CORR_AGE_MS` config constant (default 5 s) for max correction push age
+- `gnssNotifyCorrPush()` to track last two RTCM push timestamps
+
+## [0.7.2] - 2026-04-07
+
+_No functional changes — version bump to test OTA update path._
+
+## [0.7.1] - 2026-04-07
+
+### Fixed
+- OTA download corruption ("Image hash failed") — replaced unreliable `writeStream()` with chunked 4KB reads and 30s inactivity timeout for reliable large transfers over TLS
+- OTA retries infinitely on persistent failure — stops after 3 consecutive failures for the same firmware MD5, resets when new firmware is uploaded
+
+### Added
+- OTA download progress logging every ~100KB
+
 ## [0.7.0] - 2026-04-07
 
 ### Changed

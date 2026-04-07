@@ -28,6 +28,11 @@ bool              gnssHasError();
 // Returns the underlying driver object (used by ntrip_client / ntrip_broadcaster).
 SFE_UBLOX_GNSS&   gnssGetHandle();
 
+// Notify GNSS module that RTCM corrections were successfully pushed (rover).
+#ifdef MODE_ROVER
+void              gnssNotifyCorrPush();
+#endif
+
 // Reads RTCM bytes produced by ZED-F9P in base-station mode.
 // Returns number of bytes actually read (may be 0 if none available).
 #ifdef MODE_STATIONARY
