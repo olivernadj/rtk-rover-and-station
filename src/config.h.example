@@ -42,6 +42,10 @@ constexpr size_t   RTCM_BUF_LEN              = 512;
 // Rover: max age of last RTCM push for caching an RTK-corrected position
 constexpr uint32_t GPS_ACCEPTABLE_CORR_AGE_MS = 5000UL;
 
+// Logging backends (1 = enabled, 0 = disabled)
+#define LOG_SERIAL_ENABLED  1
+#define LOG_MQTT_ENABLED    1
+
 // OTA firmware update (enabled by -D OTA_ENABLED build flag)
 #ifdef OTA_ENABLED
 constexpr char     OTA_BASE_URL[]             = "https://your-ota-server.example.com";

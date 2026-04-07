@@ -52,6 +52,12 @@ bool mqttPublish(const char* payload) {
     return id != 0;
 }
 
+bool mqttLog(const char* message) {
+    if (!_mqttClient.connected()) return false;
+    uint16_t id = _mqttClient.publish("mqtt/logs/v1", 0, false, message);
+    return id != 0;
+}
+
 bool mqttIsConnected() {
     return _mqttClient.connected();
 }

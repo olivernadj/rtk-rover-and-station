@@ -65,3 +65,8 @@ void wifiInit(WifiEventCallback onConnect, WifiEventCallback onDisconnect) {
 bool wifiIsConnected() {
     return WiFi.isConnected();
 }
+
+void wifiStopReconnect() {
+    _reconnectTicker.detach();
+    _reconnectScheduled = true;  // prevent rescheduling on disconnect event
+}

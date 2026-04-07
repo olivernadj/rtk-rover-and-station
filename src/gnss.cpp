@@ -1,5 +1,6 @@
 #include "gnss.h"
 #include "config.h"
+#include "logger.h"
 #include <Wire.h>
 #include <SparkFun_u-blox_GNSS_v3.h>
 
@@ -60,7 +61,7 @@ bool gnssInit() {
     ok &= _gnss.addCfgValset(UBLOX_CFG_MSGOUT_NMEA_ID_GGA_I2C, 0);
     ok &= _gnss.addCfgValset(UBLOX_CFG_MSGOUT_NMEA_ID_ZDA_I2C, 0);
     ok &= _gnss.sendCfgValset();
-    Serial.printf("[GNSS] NMEA disable: %s\n", ok ? "OK" : "FAILED");
+    logMsg("[GNSS] NMEA disable: %s", ok ? "OK" : "FAILED");
 
     // Enable RTCM messages in a single batched valset
     ok = _gnss.newCfgValset(VAL_LAYER_RAM);
@@ -71,7 +72,7 @@ bool gnssInit() {
     ok &= _gnss.addCfgValset(UBLOX_CFG_MSGOUT_RTCM_3X_TYPE1124_I2C, 1);
     ok &= _gnss.addCfgValset(UBLOX_CFG_MSGOUT_RTCM_3X_TYPE1230_I2C, 10);
     ok &= _gnss.sendCfgValset();
-    Serial.printf("[GNSS] RTCM enable: %s\n", ok ? "OK" : "FAILED");
+    logMsg("[GNSS] RTCM enable: %s", ok ? "OK" : "FAILED");
 
     // Use a known fixed position or fall back to survey-in.
     if (USE_FIXED_POSITION) {
@@ -79,13 +80,13 @@ bool gnssInit() {
         int8_t  altHpMm01 = (int8_t)(FIXED_ALT_MM % 10);
         bool posOk = _gnss.setStaticPosition(FIXED_LAT, 0, FIXED_LON, 0,
                                              altCm, altHpMm01, true);
-        Serial.printf("[GNSS] setStaticPosition: %s\n", posOk ? "OK" : "FAILED");
-        Serial.printf("[GNSS] Fixed position: lat=%ld lon=%ld alt=%ld mm\n",
-                      (long)FIXED_LAT, (long)FIXED_LON, (long)FIXED_ALT_MM);
+        logMsg("[GNSS] setStaticPosition: %s", posOk ? "OK" : "FAILED");
+        logMsg("[GNSS] Fixed position: lat=%ld lon=%ld alt=%ld mm",
+               (long)FIXED_LAT, (long)FIXED_LON, (long)FIXED_ALT_MM);
     } else {
         _gnss.enableSurveyMode(SURVEY_IN_MIN_DURATION_S, SURVEY_IN_ACCURACY_M);
-        Serial.printf("[GNSS] Survey-in: %u s, %.1f m accuracy\n",
-                      SURVEY_IN_MIN_DURATION_S, SURVEY_IN_ACCURACY_M);
+        logMsg("[GNSS] Survey-in: %u s, %.1f m accuracy",
+               SURVEY_IN_MIN_DURATION_S, SURVEY_IN_ACCURACY_M);
     }
 #endif
 

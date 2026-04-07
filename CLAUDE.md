@@ -59,8 +59,11 @@ The mode is selected at compile time via `build_flags` in `platformio.ini`: `-D 
 **Rover-only flow:**
 `ntrip_client.cpp` fetches RTCM from caster → pushes bytes to ZED-F9P via `gnssGetHandle().pushRawData()` each loop cycle. `gnss.cpp` caches the last RTK-corrected position (when `carr_soln > 0`); `gnssGetData()` returns the cached position with `corr_age` computed as seconds since that fix. Before the first RTK fix, raw data is returned. `display.h` defines an `IDisplay` abstract interface; the default `NullDisplay` no-ops until a concrete driver is added.
 
+**Logging:**
+`logger.h` provides `logMsg()` — a `printf`-style function that writes to both Serial and MQTT (`mqtt/logs/v1`). Controlled by `LOG_SERIAL_ENABLED` / `LOG_MQTT_ENABLED` in `config.h`. Cannot be used in `wifi_manager.cpp` or `mqtt_manager.cpp` (circular dependency). OTA messages after WiFi shutdown must use `Serial` directly.
+
 **OTA flow (when enabled):**
-`ota_updater.cpp` polls the manifest URL every 5 min over HTTPS with Basic Auth → compares MD5 → downloads `.bin` → verifies → flashes inactive OTA partition → reboots. See [docs/OTA.md](docs/OTA.md) for full setup instructions including the OTA server.
+`ota_updater.cpp` polls the manifest URL every 5 min over HTTPS with Basic Auth → compares version → downloads `.bin` → streams to flash via internal SRAM IO buffer → shuts down WiFi → verifies image → reboots. See [docs/OTA.md](docs/OTA.md) for full setup instructions including the OTA server.
 
 **Connectivity:** `wifi_manager.cpp` cycles through multiple AP credentials on disconnect. `mqtt_manager.cpp` auto-reconnects when WiFi is available. Both use `Ticker` one-shot timers for reconnection.
 
@@ -94,6 +97,7 @@ When making changes: update `CHANGELOG.md` first, then build.
 | `src/ntrip_broadcaster.h` / `.cpp` | stationary | Simultaneous multi-caster RTCM broadcaster |
 | `src/ntrip_client.h` / `.cpp` | rover | NTRIP correction client |
 | `src/display.h` | rover | `IDisplay` abstract interface + `NullDisplay` default |
+| `src/logger.h` | both | Header-only dual-backend logging (Serial + MQTT) |
 | `src/ota_updater.h` / `.cpp` | both (opt-in) | Poll-based OTA firmware updater (requires `-D OTA_ENABLED`) |
 | `src/main.cpp` | both | Setup + cooperative loop |
 | `read_version.py` | build | PlatformIO pre-script: injects `FW_VERSION` from `CHANGELOG.md` |
@@ -170,3 +174,21 @@ This was the hardest issue. Multiple things must be correct simultaneously:
 4. **`setStaticPosition` argument order:** The signature is `(lat, latHp, lon, lonHp, alt, altHp, lla)` — alternating value and high-precision pairs. Passing `(lat, lon, alt, 0, 0, altHp, true)` compiles without error but overflows `latHp` (int8_t) and the module silently fails to enter TIME mode, producing zero RTCM.
 
 5. **Satellite visibility:** Even with a correct fixed position, the module needs actual satellite signals to generate RTCM corrections. Indoor operation works if the antenna has partial sky view (24 satellites were visible indoors during testing).
+
+### OTA "Image hash failed" / "Could Not Activate The Firmware" on ESP32-S3
+
+This was a multi-layered problem. The ESP32-S3 shares its SPI bus between flash and PSRAM (when enabled), and WiFi DMA competes for memory access. Multiple failure modes were discovered:
+
+1. **Do NOT enable PSRAM for OTA downloads.** With `-DBOARD_HAS_PSRAM`, the mbedTLS library allocates its 16 KB receive buffers via `malloc()`, which routes large allocations to PSRAM. WiFi DMA and TLS decryption then compete for PSRAM access, causing cache coherency issues that silently corrupt the decrypted data. The MD5 of the downloaded buffer will not match the expected value. **Fix:** Remove `-DBOARD_HAS_PSRAM` and `board_build.arduino.memory_type = qio_opi` from `platformio.ini`. All TLS/WiFi buffers stay in internal SRAM where DMA works correctly.
+
+2. **Stream directly to flash — do not buffer the entire firmware.** Without PSRAM, there isn't enough internal heap (~270 KB) to hold a ~1 MB firmware. Stream each chunk directly: `readBytes(ioBuf, n)` → `Update.write(ioBuf, n)`.
+
+3. **Allocate the IO buffer from internal SRAM heap, not the stack.** The ESP32 Arduino loop task has only 8 KB of stack. A 4 KB stack buffer leaves almost no headroom for the TLS call chain underneath. Use `heap_caps_malloc(CHUNK, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)` instead.
+
+4. **Stop the WiFi reconnect ticker before shutting down WiFi.** `WiFi.disconnect(true)` fires a `SYSTEM_EVENT_STA_DISCONNECTED` event, which the wifi_manager reconnect handler catches and schedules a reconnect 5 seconds later. If the ticker fires during `Update.end()` → `esp_image_verify()`, the SPI flash read-back is corrupted by the concurrent WiFi radio startup. **Fix:** Call `wifiStopReconnect()` before `WiFi.disconnect()`.
+
+5. **Shut down WiFi before calling `Update.end()`.** The `esp_image_verify()` function inside `Update.end()` reads back the entire firmware from flash and computes a SHA-256 hash. Any concurrent SPI activity (WiFi, TLS teardown) can corrupt this read. **Fix:** `wifiStopReconnect()` → `http.end()` → `WiFi.disconnect(true)` → `WiFi.mode(WIFI_OFF)` → `delay(500)` → `Update.end()`.
+
+6. **Only shut down WiFi on the success path.** If the download fails, do NOT call `wifiStopReconnect()` or `WiFi.mode(WIFI_OFF)` — otherwise WiFi stays permanently dead until reboot. The device needs WiFi to retry or continue normal operation.
+
+**Diagnostic approach:** Add an MD5 check of the download buffer before writing to flash (`MD5Builder`). This distinguishes download corruption (MD5 mismatch before flash write) from flash write corruption (MD5 matches but image hash fails). In our case, with PSRAM enabled the download itself was corrupted; without PSRAM, the download was clean.

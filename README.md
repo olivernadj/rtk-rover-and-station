@@ -80,6 +80,7 @@ NTRIP caster --> ntrip_client.cpp --> ZED-F9P (pushRawData)
 | `ntrip_broadcaster.h` / `.cpp` | stationary | NTRIP v1 SOURCE protocol, simultaneous multi-caster RTCM broadcast |
 | `ntrip_client.h` / `.cpp` | rover | NTRIP correction client |
 | `display.h` | rover | `IDisplay` abstract interface + `NullDisplay` default |
+| `logger.h` | both | Header-only dual-backend logging (Serial + MQTT) |
 | `ota_updater.h` / `.cpp` | both (opt-in) | Poll-based OTA firmware updater (requires `-D OTA_ENABLED`) |
 
 ## Configuration
@@ -158,7 +159,7 @@ Published to `mqtt/metrics/v2` as JSON:
 
 OTA is opt-in. Add `-D OTA_ENABLED` to `build_flags` in `platformio.ini` to enable it. Without this flag, zero OTA code is compiled.
 
-When enabled, the device polls a manifest URL every 5 minutes over HTTPS with Basic Auth. If the firmware MD5 has changed, it downloads, verifies, flashes, and reboots automatically.
+When enabled, the device polls a manifest URL every 5 minutes over HTTPS with Basic Auth. If the firmware version has changed, it streams the new binary directly to flash using an internal SRAM IO buffer, shuts down WiFi to ensure exclusive SPI bus access, verifies the image hash, and reboots automatically.
 
 Configure the server URL in `src/config.h` and credentials in `src/secrets.cpp`. See [docs/OTA.md](docs/OTA.md) for full instructions on setting up your own OTA server.
 

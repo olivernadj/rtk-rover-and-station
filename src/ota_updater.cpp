@@ -4,6 +4,7 @@
 #include "secrets.h"
 #include "wifi_manager.h"
 #include "mqtt_manager.h"
+#include "logger.h"
 #ifdef MODE_ROVER
 #include "ntrip_client.h"
 #endif
@@ -12,6 +13,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <Update.h>
+#include <esp_heap_caps.h>
 
 static uint32_t _lastCheck = 0;
 static uint8_t  _failCount = 0;
@@ -31,7 +33,7 @@ static bool checkManifest(String& outUrl, String& outMd5) {
     http.setTimeout(10000);
     int code = http.GET();
     if (code != 200) {
-        Serial.printf("[OTA] Manifest fetch failed: %d\n", code);
+        logMsg("[OTA] Manifest fetch failed: %d", code);
         http.end();
         return false;
     }
@@ -48,7 +50,7 @@ static bool checkManifest(String& outUrl, String& outMd5) {
 
     int modePos = body.indexOf(modeKey);
     if (modePos < 0) {
-        Serial.println("[OTA] Mode not found in manifest");
+        logMsg("[OTA] Mode not found in manifest");
         return false;
     }
 
@@ -67,7 +69,7 @@ static bool checkManifest(String& outUrl, String& outMd5) {
     outUrl = body.substring(urlStart, urlEnd);
 
     if (outMd5.length() != 32) {
-        Serial.println("[OTA] Invalid MD5 in manifest");
+        logMsg("[OTA] Invalid MD5 in manifest");
         return false;
     }
 
@@ -89,7 +91,7 @@ static bool checkManifest(String& outUrl, String& outMd5) {
 
 static bool performOta(const String& url, const String& expectedMd5) {
     String fullUrl = String(OTA_BASE_URL) + url;
-    Serial.printf("[OTA] Downloading %s\n", fullUrl.c_str());
+    logMsg("[OTA] Downloading %s", fullUrl.c_str());
 
     WiFiClientSecure client;
     client.setInsecure();
@@ -101,30 +103,41 @@ static bool performOta(const String& url, const String& expectedMd5) {
     http.setTimeout(60000);
     int code = http.GET();
     if (code != 200) {
-        Serial.printf("[OTA] Download failed: %d\n", code);
+        logMsg("[OTA] Download failed: %d", code);
         http.end();
         return false;
     }
 
     int contentLen = http.getSize();
     if (contentLen <= 0) {
-        Serial.println("[OTA] Invalid content length");
+        logMsg("[OTA] Invalid content length");
         http.end();
         return false;
     }
 
-    Serial.printf("[OTA] Firmware size: %d bytes\n", contentLen);
+    logMsg("[OTA] Firmware size: %d bytes", contentLen);
 
     if (!Update.begin(contentLen)) {
-        Serial.printf("[OTA] Not enough space: %s\n", Update.errorString());
+        logMsg("[OTA] Not enough space: %s", Update.errorString());
         http.end();
         return false;
     }
 
     Update.setMD5(expectedMd5.c_str());
 
+    // Stream directly to flash — no PSRAM involved.
+    // All buffers (IO, TLS internal) stay in internal SRAM, avoiding the
+    // PSRAM cache coherency issues that corrupt data on ESP32-S3.
+    static constexpr size_t CHUNK = 2048;
+    uint8_t* ioBuf = (uint8_t*)heap_caps_malloc(CHUNK, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!ioBuf) {
+        logMsg("[OTA] Cannot allocate IO buffer");
+        http.end();
+        Update.abort();
+        return false;
+    }
+
     WiFiClient* stream = http.getStreamPtr();
-    uint8_t buf[2048];
     size_t written = 0;
     uint32_t lastActivity = millis();
 
@@ -132,55 +145,60 @@ static bool performOta(const String& url, const String& expectedMd5) {
         size_t avail = stream->available();
         if (avail == 0) {
             if (millis() - lastActivity > 30000) {
-                Serial.println("[OTA] Download timeout (30s no data)");
+                logMsg("[OTA] Download timeout (30s no data)");
                 break;
             }
             delay(10);
             continue;
         }
-        size_t toRead = min(avail, sizeof(buf));
-        size_t bytesRead = stream->readBytes(buf, toRead);
+        size_t toRead = min(avail, CHUNK);
+        size_t bytesRead = stream->readBytes(ioBuf, toRead);
         if (bytesRead == 0) break;
-        size_t bytesWritten = Update.write(buf, bytesRead);
-        if (bytesWritten != bytesRead) {
-            Serial.printf("[OTA] Flash write error at %u bytes\n", written);
+        size_t n = Update.write(ioBuf, bytesRead);
+        if (n != bytesRead) {
+            logMsg("[OTA] Flash write error at %u bytes", written);
             break;
         }
-        written += bytesWritten;
+        written += n;
         lastActivity = millis();
-        delay(2);  // Yield to RTOS — prevents SPI flash/PSRAM bus contention
-        if (written % (100 * 1024) < sizeof(buf)) {
-            Serial.printf("[OTA] Progress: %u / %d bytes (%u%%)\n",
-                          written, contentLen, (written * 100) / contentLen);
+        delay(2);  // Yield to RTOS
+        if (written % (100 * 1024) < CHUNK) {
+            logMsg("[OTA] Progress: %u / %d bytes (%u%%)",
+                   written, contentLen, (written * 100) / contentLen);
         }
     }
 
+    free(ioBuf);
+
     if (written != (size_t)contentLen) {
-        Serial.printf("[OTA] Incomplete: %u / %d bytes\n", written, contentLen);
-        http.end();
+        logMsg("[OTA] Incomplete: %u / %d bytes", written, contentLen);
         Update.abort();
+        http.end();
         return false;
     }
 
-    // Verify and finalise BEFORE tearing down TLS — http.end() triggers
-    // heavy PSRAM/heap activity that can corrupt the flash read-back
-    // performed by esp_image_verify() inside Update.end().
-    Serial.printf("[OTA] Download complete, verifying image...\n");
+    // Shut down WiFi before verification — prevents reconnect ticker from
+    // calling WiFi.begin() during esp_image_verify() flash read-back.
+    wifiStopReconnect();
+    http.end();
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    delay(500);
+
+    Serial.println("[OTA] Download complete, verifying image...");
     if (!Update.end()) {
         Serial.printf("[OTA] Update failed: %s\n", Update.errorString());
-        http.end();
         return false;
     }
 
-    http.end();
     Serial.println("[OTA] Update successful!");
     return true;
 }
 
 void otaInit() {
     _lastCheck = millis();
-    Serial.printf("[OTA] Initialised (fw: %s), first check in %lus\n",
-                  FW_VERSION, OTA_CHECK_INTERVAL_MS / 1000);
+    logMsg("[OTA] Initialised (fw: %s), first check in %lus",
+           FW_VERSION, OTA_CHECK_INTERVAL_MS / 1000);
 }
 
 void otaUpdate() {
@@ -190,26 +208,26 @@ void otaUpdate() {
     if (now - _lastCheck < OTA_CHECK_INTERVAL_MS) return;
     _lastCheck = now;
 
-    Serial.println("[OTA] Checking for update...");
+    logMsg("[OTA] Checking for update...");
 
     String url, md5;
     if (!checkManifest(url, md5)) {
-        Serial.println("[OTA] No update available");
+        logMsg("[OTA] No update available");
         return;
     }
 
-    Serial.printf("[OTA] New firmware available (md5: %s)\n", md5.c_str());
+    logMsg("[OTA] New firmware available (md5: %s)", md5.c_str());
 
     if (md5 != _lastFailedMd5) {
         _failCount = 0;  // New firmware on server, reset retries
     }
 
     if (_failCount >= OTA_MAX_RETRIES) {
-        Serial.printf("[OTA] Skipping — %d consecutive failures, waiting for new manifest\n", _failCount);
+        logMsg("[OTA] Skipping — %d consecutive failures, waiting for new manifest", _failCount);
         return;
     }
 
-    Serial.println("[OTA] Stopping network services before flash...");
+    logMsg("[OTA] Stopping network services before flash...");
     mqttOnWifiDisconnect();
 #ifdef MODE_ROVER
     ntripOnWifiDisconnect();
@@ -223,7 +241,7 @@ void otaUpdate() {
     } else {
         _failCount++;
         _lastFailedMd5 = md5;
-        Serial.printf("[OTA] Failure %d/%d\n", _failCount, OTA_MAX_RETRIES);
+        logMsg("[OTA] Failure %d/%d", _failCount, OTA_MAX_RETRIES);
     }
 }
 

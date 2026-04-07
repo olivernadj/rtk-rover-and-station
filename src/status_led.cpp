@@ -1,5 +1,6 @@
 #include "status_led.h"
 #include "config.h"
+#include "logger.h"
 #include <Adafruit_NeoPixel.h>
 
 static Adafruit_NeoPixel _pixel(1, LED_PIN, NEO_GRB + NEO_KHZ800);
@@ -60,8 +61,8 @@ void ledUpdate(bool wifiOk, bool gnssOk, bool ntpOk, bool mqttOk, bool ntripOk) 
                 else if (!ntpOk)   status = "NTP not synced";
                 else if (!ntripOk) status = "NTRIP down";
                 else if (!mqttOk)  status = "MQTT down";
-                Serial.printf("[STATUS] %s (wifi=%d gnss=%d ntp=%d mqtt=%d ntrip=%d)\n",
-                              status, wifiOk, gnssOk, ntpOk, mqttOk, ntripOk);
+                logMsg("[STATUS] %s (wifi=%d gnss=%d ntp=%d mqtt=%d ntrip=%d)",
+                       status, wifiOk, gnssOk, ntpOk, mqttOk, ntripOk);
 
                 setPixel(_current.color);
                 _phase      = LedPhase::BLINK_ON;

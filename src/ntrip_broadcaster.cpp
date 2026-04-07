@@ -4,6 +4,7 @@
 #include "config.h"
 #include "secrets.h"
 #include "gnss.h"
+#include "logger.h"
 #include "wifi_manager.h"
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -28,10 +29,10 @@ static void casterConnect(int idx) {
     const NtripCasterConfig& cfg = NTRIP_CASTERS[idx];
     CasterConnection& c = _casters[idx];
 
-    Serial.printf("[NTRIP] Connecting to %s:%d/%s\n", cfg.host, cfg.port, cfg.mountpoint);
+    logMsg("[NTRIP] Connecting to %s:%d/%s", cfg.host, cfg.port, cfg.mountpoint);
     c.client.setTimeout(3000);
     if (!c.client.connect(cfg.host, cfg.port)) {
-        Serial.printf("[NTRIP] Connection failed to %s:%d\n", cfg.host, cfg.port);
+        logMsg("[NTRIP] Connection failed to %s:%d", cfg.host, cfg.port);
         c.state          = NtripState::DISCONNECTED;
         c.reconnectAfter = millis() + NTRIP_RECONNECT_DELAY_MS;
         return;
@@ -52,8 +53,8 @@ static void casterProcessHandshake(int idx) {
 
     if (!c.client.available()) {
         if (millis() - c.lastDataMs > NTRIP_TIMEOUT_MS) {
-            Serial.printf("[NTRIP] Handshake timeout (no response in %lu ms)\n",
-                          NTRIP_TIMEOUT_MS);
+            logMsg("[NTRIP] Handshake timeout (no response in %lu ms)",
+                   NTRIP_TIMEOUT_MS);
             c.client.stop();
             c.state          = NtripState::DISCONNECTED;
             c.reconnectAfter = millis() + NTRIP_RECONNECT_DELAY_MS;
@@ -63,7 +64,7 @@ static void casterProcessHandshake(int idx) {
 
     c.client.setTimeout(200);
     String line = c.client.readStringUntil('\n');
-    Serial.printf("[NTRIP] Response: %s\n", line.c_str());
+    logMsg("[NTRIP] Response: %s", line.c_str());
     if (line.startsWith("ICY 200") || line.startsWith("HTTP/1.1 200")) {
         // Drain remaining HTTP headers
         while (c.client.available()) {
@@ -83,7 +84,7 @@ static void casterCheckStreamAlive(int idx) {
     CasterConnection& c = _casters[idx];
 
     if (!c.client.connected()) {
-        Serial.printf("[NTRIP] Connection to caster #%d lost\n", idx);
+        logMsg("[NTRIP] Connection to caster #%d lost", idx);
         c.client.stop();
         c.state          = NtripState::DISCONNECTED;
         c.reconnectAfter = millis() + NTRIP_RECONNECT_DELAY_MS;
@@ -128,15 +129,6 @@ void ntripBroadcasterUpdate() {
     // 2. Read RTCM bytes from ZED-F9P once per loop
     size_t nRead = gnssReadRtcm(_rtcmBuf, RTCM_BUF_LEN);
     if (nRead == 0) return;
-
-    static uint32_t _totalRtcm = 0;
-    static uint32_t _lastRtcmLog = 0;
-    _totalRtcm += nRead;
-    if (millis() - _lastRtcmLog >= 5000) {
-        Serial.printf("[NTRIP] RTCM: %lu bytes total, last chunk %u bytes\n",
-                      _totalRtcm, nRead);
-        _lastRtcmLog = millis();
-    }
 
     // 3. Forward to every STREAMING caster
     for (int i = 0; i < _casterCount; i++) {

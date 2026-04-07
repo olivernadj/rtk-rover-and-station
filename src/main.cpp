@@ -4,6 +4,7 @@
 #include "metrics.h"
 #include "wifi_manager.h"
 #include "mqtt_manager.h"
+#include "logger.h"
 #include "status_led.h"
 #ifdef OTA_ENABLED
 #include "ota_updater.h"
@@ -58,7 +59,7 @@ void setup() {
     ledInit();
 
     if (!gnssInit()) {
-        Serial.println("[GNSS] Init failed - check I2C wiring (SDA=8, SCL=9)");
+        logMsg("[GNSS] Init failed - check I2C wiring (SDA=8, SCL=9)");
     }
 
     mqttInit();
@@ -77,7 +78,7 @@ void setup() {
     otaInit();
 #endif
 
-    Serial.println("[MAIN] Setup complete");
+    logMsg("[MAIN] Setup complete");
 }
 
 void loop() {
