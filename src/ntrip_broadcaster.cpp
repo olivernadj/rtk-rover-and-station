@@ -24,6 +24,7 @@ static CasterConnection _casters[8]; // supports up to 8 casters; actual count f
 static int              _casterCount = 0;
 static uint8_t          _rtcmBuf[RTCM_BUF_LEN];
 static uint32_t         _lastSuccessfulPushMs = 0;
+static uint32_t         _corrCount = 0;
 
 static void casterConnect(int idx) {
     const NtripCasterConfig& cfg = NTRIP_CASTERS[idx];
@@ -138,6 +139,7 @@ void ntripBroadcasterUpdate() {
             _lastSuccessfulPushMs  = millis();
         }
     }
+    _corrCount++;
 }
 
 bool ntripBroadcasterAnyConnected() {
@@ -151,6 +153,10 @@ uint16_t ntripBroadcasterCorrAgeSec() {
     if (_lastSuccessfulPushMs == 0) return 0;
     uint32_t elapsed = (millis() - _lastSuccessfulPushMs) / 1000;
     return (elapsed < 0xFFFF) ? (uint16_t)elapsed : 0xFFFF;
+}
+
+uint32_t ntripGetCorrCount() {
+    return _corrCount;
 }
 
 #endif // MODE_STATIONARY

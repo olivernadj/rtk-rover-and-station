@@ -22,6 +22,9 @@ static uint8_t     _blinksLeft = 0;
 static uint32_t    _phaseStart = 0;
 static BlinkPattern _current   = {COLOR_BLUE, 1};
 
+// Previous status flags for change detection (initialised to impossible values to force first log)
+static int8_t _prevWifi = -1, _prevGnss = -1, _prevNtp = -1, _prevMqtt = -1, _prevNtrip = -1;
+
 static void setPixel(uint32_t color) {
     _pixel.setPixelColor(0, color);
     _pixel.show();
@@ -55,14 +58,19 @@ void ledUpdate(bool wifiOk, bool gnssOk, bool ntpOk, bool mqttOk, bool ntripOk) 
                 _current    = selectPattern(wifiOk, gnssOk, ntpOk, mqttOk, ntripOk);
                 _blinksLeft = _current.count;
 
-                const char* status = "OK";
-                if      (!gnssOk)  status = "GNSS error";
-                else if (!wifiOk)  status = "WiFi down";
-                else if (!ntpOk)   status = "NTP not synced";
-                else if (!ntripOk) status = "NTRIP down";
-                else if (!mqttOk)  status = "MQTT down";
-                logMsg("[STATUS] %s (wifi=%d gnss=%d ntp=%d mqtt=%d ntrip=%d)",
-                       status, wifiOk, gnssOk, ntpOk, mqttOk, ntripOk);
+                if (wifiOk != _prevWifi || gnssOk != _prevGnss || ntpOk != _prevNtp ||
+                    mqttOk != _prevMqtt || ntripOk != _prevNtrip) {
+                    const char* status = "OK";
+                    if      (!gnssOk)  status = "GNSS error";
+                    else if (!wifiOk)  status = "WiFi down";
+                    else if (!ntpOk)   status = "NTP not synced";
+                    else if (!ntripOk) status = "NTRIP down";
+                    else if (!mqttOk)  status = "MQTT down";
+                    logMsg("[STATUS] %s (wifi=%d gnss=%d ntp=%d mqtt=%d ntrip=%d)",
+                           status, wifiOk, gnssOk, ntpOk, mqttOk, ntripOk);
+                    _prevWifi = wifiOk; _prevGnss = gnssOk; _prevNtp = ntpOk;
+                    _prevMqtt = mqttOk; _prevNtrip = ntripOk;
+                }
 
                 setPixel(_current.color);
                 _phase      = LedPhase::BLINK_ON;

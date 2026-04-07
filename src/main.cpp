@@ -54,6 +54,7 @@ static void onWifiDisconnect() {
 
 // ── Arduino setup / loop ─────────────────────────────────────────────────────
 void setup() {
+    delay(1000);  // let power rails stabilize before initializing peripherals
     Serial.begin(115200);
 
     ledInit();

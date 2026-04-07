@@ -8,8 +8,13 @@
 static WifiEventCallback _onConnect;
 static WifiEventCallback _onDisconnect;
 static Ticker            _reconnectTicker;
+static Ticker            _timeoutTicker;
 static int               _apIndex = 0;
 static bool              _reconnectScheduled = false;
+
+static constexpr int WIFI_CONNECT_TIMEOUT_S = 12;
+
+static void startConnect();   // forward declaration
 
 static void setHostnameFromMac() {
     uint8_t mac[6];
@@ -19,8 +24,17 @@ static void setHostnameFromMac() {
     WiFi.setHostname(name);
 }
 
+static void onConnectTimeout() {
+    if (!WiFi.isConnected()) {
+        Serial.println("[WIFI] Connect timeout, trying next AP");
+        _reconnectScheduled = false;
+        startConnect();
+    }
+}
+
 static void startConnect() {
     _reconnectScheduled = false;
+    _timeoutTicker.detach();
     Serial.printf("[WIFI] Connecting to AP #%d: \"%s\"\n",
                   _apIndex, WIFI_CREDENTIALS[_apIndex].ssid);
     WiFi.disconnect(true);
@@ -29,12 +43,14 @@ static void startConnect() {
     WiFi.begin(WIFI_CREDENTIALS[_apIndex].ssid,
                WIFI_CREDENTIALS[_apIndex].password);
     _apIndex = (_apIndex + 1) % WIFI_CREDENTIAL_COUNT;
+    _timeoutTicker.once(WIFI_CONNECT_TIMEOUT_S, onConnectTimeout);
 }
 
 static void onWiFiEvent(WiFiEvent_t event) {
     switch (event) {
         case SYSTEM_EVENT_STA_GOT_IP: {
             _reconnectTicker.detach();
+            _timeoutTicker.detach();
             Serial.printf("[WIFI] Connected! IP: %s  GW: %s\n",
                           WiFi.localIP().toString().c_str(),
                           WiFi.gatewayIP().toString().c_str());
@@ -68,5 +84,6 @@ bool wifiIsConnected() {
 
 void wifiStopReconnect() {
     _reconnectTicker.detach();
+    _timeoutTicker.detach();
     _reconnectScheduled = true;  // prevent rescheduling on disconnect event
 }

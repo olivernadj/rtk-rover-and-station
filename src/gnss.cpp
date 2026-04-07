@@ -30,7 +30,7 @@ static bool     _error = false;
 static GnssData  _cachedBest       = {};
 static bool      _cacheValid       = false;
 static uint32_t  _cacheTimestampMs = 0;
-static uint32_t  _corrPushMs[2]    = {0, 0};   // last two pushRawData timestamps
+static uint32_t  _corrPushMs       = 0;         // last pushRawData timestamp
 static bool      _corrPushInit     = false;     // true after first push
 #endif
 
@@ -116,25 +116,12 @@ void gnssUpdate() {
         _data.corr_age = (ageIdx < 13) ? ageToSec[ageIdx] : 0xFFFF;
 
         // Cache position only when RTK-corrected AND corrections were pushed
-        // recently enough (between 1 s and GPS_ACCEPTABLE_CORR_AGE_MS ago).
-        // Check both the most recent and one-prior push timestamps so that a
-        // brand-new push (< 1 s) doesn't disqualify us while the previous one
-        // is still in the valid window.
-        if (_data.carr_soln > 0 && _corrPushInit) {
-            uint32_t now = millis();
-            bool pushOk = false;
-            for (int i = 0; i < 2; i++) {
-                uint32_t age = now - _corrPushMs[i];
-                if (age >= 1000 && age <= GPS_ACCEPTABLE_CORR_AGE_MS) {
-                    pushOk = true;
-                    break;
-                }
-            }
-            if (pushOk) {
-                _cachedBest       = _data;
-                _cacheValid       = true;
-                _cacheTimestampMs = millis();
-            }
+        // recently enough (within GPS_ACCEPTABLE_CORR_AGE_MS).
+        if (_data.carr_soln > 0 && _corrPushInit
+            && (millis() - _corrPushMs) <= GPS_ACCEPTABLE_CORR_AGE_MS) {
+            _cachedBest       = _data;
+            _cacheValid       = true;
+            _cacheTimestampMs = millis();
         }
 #endif
 
@@ -154,8 +141,7 @@ const GnssData& gnssGetData() {
 }
 #ifdef MODE_ROVER
 void gnssNotifyCorrPush() {
-    _corrPushMs[1] = _corrPushMs[0];
-    _corrPushMs[0] = millis();
+    _corrPushMs = millis();
     _corrPushInit  = true;
 }
 #endif

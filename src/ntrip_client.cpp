@@ -51,6 +51,7 @@ static NtripState  _state          = NtripState::DISCONNECTED;
 static uint32_t    _lastDataMs     = 0;
 static uint32_t    _reconnectAfter = 0;
 static uint8_t     _rtcmBuf[RTCM_BUF_LEN];
+static uint32_t    _corrCount      = 0;
 
 static void startConnect() {
     _client.stop();
@@ -123,6 +124,7 @@ static void processStream() {
     if (nRead > 0) {
         gnssGetHandle().pushRawData(_rtcmBuf, nRead);
         gnssNotifyCorrPush();
+        _corrCount++;
         _lastDataMs = millis();
     }
 }
@@ -162,6 +164,10 @@ void ntripOnWifiDisconnect() {
     _client.stop();
     _state          = NtripState::DISCONNECTED;
     _reconnectAfter = 0;
+}
+
+uint32_t ntripGetCorrCount() {
+    return _corrCount;
 }
 
 #endif // MODE_ROVER

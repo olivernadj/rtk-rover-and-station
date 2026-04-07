@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-04-07
+
+### Added
+- `corr_count` counter in MQTT metrics — increments each time RTK corrections are sent (stationary) or received (rover); Prometheus-compatible monotonic counter
+- 1000ms boot delay for power rail stabilization before peripheral init
+
+### Changed
+- Status LED log messages (`[STATUS]`) now only print when status flags change, reducing serial/MQTT log noise
+- MQTT log topic now includes version, mode, and hostname: `mqtt/logs/v{FW_VERSION}/{mode}/{hostname}` (was `mqtt/logs/v1`)
+
+### Fixed
+- MQTT log topic and client ID used default hostname `esp32s3-000001` because `mqttInit()` ran before `wifiInit()` set the MAC-derived hostname; now resolved lazily after WiFi is up
+- Rover position cache rejected valid RTK fixes when correction push was younger than 1s; removed the `>= 1000ms` lower bound and simplified to single-timestamp check
+
 ## [0.9.0] - 2026-04-07
 
 ### Added
@@ -103,7 +117,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - NeoPixel status LED with priority-based blink patterns
 - NTP time synchronisation
 
-[Unreleased]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.4.0...v0.5.0

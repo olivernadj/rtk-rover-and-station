@@ -4,6 +4,12 @@
 #include <WiFi.h>
 
 #ifdef MODE_STATIONARY
+#include "ntrip_broadcaster.h"
+#else
+#include "ntrip_client.h"
+#endif
+
+#ifdef MODE_STATIONARY
 static constexpr char MODE_STR[] = "stationary";
 #else
 static constexpr char MODE_STR[] = "rover";
@@ -22,7 +28,8 @@ static const char* msgTemplate =
         "\"siv\":\"%d\","
         "\"fix_type\":\"%d\","
         "\"carr_soln\":\"%d\","
-        "\"wifi_rssi\":\"%d\""
+        "\"wifi_rssi\":\"%d\","
+        "\"corr_count\":\"%u\""
       "},"
       "\"timestamp\":%ld,"
       "\"client\":\"rtk-%s\","
@@ -52,6 +59,7 @@ size_t metricsFormat(char* buf, size_t len, const GnssData& data) {
         (int)data.fix_type,
         (int)data.carr_soln,
         (int)WiFi.RSSI(),
+        (unsigned)ntripGetCorrCount(),
         (long)now,
         MODE_STR,
         WiFi.getHostname(),
