@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-04-08
+
+### Added
+- Health watchdog: auto-reboot when system status is non-OK for >1 minute (`HEALTH_REBOOT_TIMEOUT_MS`)
+- `wifiResumeReconnect()` API to restore WiFi after failed OTA
+- OTA download MD5 verification before flash — distinguishes download corruption from flash issues
+- Custom board definition `esp32-s3-devkitc-1-n16r8` matching actual hardware (16MB flash, 8MB PSRAM)
+
+### Fixed
+- WiFi permanently dead after failed OTA verification — now calls `wifiResumeReconnect()` to restore connectivity
+
 ## [0.10.0] - 2026-04-07
 
 ### Added
@@ -117,7 +128,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - NeoPixel status LED with priority-based blink patterns
 - NTP time synchronisation
 
-[Unreleased]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.10.0...v0.12.0
 [0.10.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/olivernadj/rtk-rover-and-station/compare/v0.7.0...v0.8.0

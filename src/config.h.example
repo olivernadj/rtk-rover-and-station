@@ -32,6 +32,7 @@ constexpr uint8_t  LED_PIN                   = 48;
 constexpr uint32_t LED_CYCLE_MS              = 5000UL;
 constexpr uint32_t LED_BLINK_ON_MS           = 200UL;
 constexpr uint32_t LED_BLINK_OFF_MS          = 200UL;
+constexpr uint32_t HEALTH_REBOOT_TIMEOUT_MS  = 60000UL;  // reboot after 1 min non-OK
 
 // JSON metrics buffer
 constexpr size_t   METRICS_BUF_LEN           = 512;

@@ -143,4 +143,11 @@ void loop() {
         mqttIsConnected(),
         ntripOk
     );
+
+    // 7. Reboot if status has been non-OK for too long
+    if (healthCheckReboot()) {
+        Serial.println("[MAIN] Status non-OK for >1 min — rebooting");
+        Serial.flush();
+        ESP.restart();
+    }
 }

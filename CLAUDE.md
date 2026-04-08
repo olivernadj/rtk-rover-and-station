@@ -175,20 +175,32 @@ This was the hardest issue. Multiple things must be correct simultaneously:
 
 5. **Satellite visibility:** Even with a correct fixed position, the module needs actual satellite signals to generate RTCM corrections. Indoor operation works if the antenna has partial sky view (24 satellites were visible indoors during testing).
 
-### OTA "Image hash failed" / "Could Not Activate The Firmware" on ESP32-S3
+### OTA "Could Not Activate The Firmware" / `invalid segment length` on ESP32-S3 N16R8
 
-This was a multi-layered problem. The ESP32-S3 shares its SPI bus between flash and PSRAM (when enabled), and WiFi DMA competes for memory access. Multiple failure modes were discovered:
+**Root cause: DIO SPI flash read bug with Macronix 16MB flash.** The hardware is ESP32-S3-WROOM-1-N16R8 (16MB Macronix flash, 8MB OPI PSRAM), but the Arduino ESP32 v2.x framework (ESP-IDF 4.4) has a bug in the DIO (Dual I/O) SPI flash driver for user-mode reads on this chip. Flash reads via `esp_partition_read()` / `spi_flash_read()` silently wrap at 32-byte boundaries — the first 32 bytes of a read are correct, then they repeat. Flash **writes** are correct (verified via `esptool.py read_flash` raw readback). Normal firmware operation is unaffected because code execution goes through the cache/MMU auto-mode reads, which use a different SPI read path that works correctly.
 
-1. **Do NOT enable PSRAM for OTA downloads.** With `-DBOARD_HAS_PSRAM`, the mbedTLS library allocates its 16 KB receive buffers via `malloc()`, which routes large allocations to PSRAM. WiFi DMA and TLS decryption then compete for PSRAM access, causing cache coherency issues that silently corrupt the decrypted data. The MD5 of the downloaded buffer will not match the expected value. **Fix:** Remove `-DBOARD_HAS_PSRAM` and `board_build.arduino.memory_type = qio_opi` from `platformio.ini`. All TLS/WiFi buffers stay in internal SRAM where DMA works correctly.
+**Impact on OTA:** `Update.end()` → `esp_ota_end()` → `esp_image_verify()` reads back the firmware from flash using the broken user-mode SPI path, sees corrupted data, and fails with `invalid segment length 0x3e000000`. The bootloader's image verification uses the same broken DIO reads, so even bypassing app-level verification and directly writing otadata doesn't work — the bootloader also fails to verify the new partition and rolls back.
 
-2. **Stream directly to flash — do not buffer the entire firmware.** Without PSRAM, there isn't enough internal heap (~270 KB) to hold a ~1 MB firmware. Stream each chunk directly: `readBytes(ioBuf, n)` → `Update.write(ioBuf, n)`.
+**What was tried and ruled out:**
+- `board_build.flash_mode = qio` — the `dio_qspi` pre-compiled SDK ignores this; the image header stays DIO
+- `board_build.arduino.memory_type = qio_qspi` or `qio_opi` — changes the SDK to QIO-compiled libraries, but crashes the WiFi driver (`ieee80211_send_setup` dereferences an invalid pointer during power management). Both QIO variants crash identically.
+- `Cache_Invalidate_DCache_All()` / `Cache_Invalidate_ICache_All()` before reads — no effect (the issue is in the SPI read command itself, not cache staleness)
+- Direct otadata write to bypass `esp_image_verify()` — the write succeeds and the device reboots, but the bootloader's own DIO reads also have the 32-byte wrap, so it fails verification and rolls back to the previous partition
 
-3. **Allocate the IO buffer from internal SRAM heap, not the stack.** The ESP32 Arduino loop task has only 8 KB of stack. A 4 KB stack buffer leaves almost no headroom for the TLS call chain underneath. Use `heap_caps_malloc(CHUNK, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)` instead.
+**Current status (2026-04-08):** OTA is blocked on the DIO SPI flash read bug. The most promising fix is upgrading from Arduino ESP32 v2.x (ESP-IDF 4.4, `espressif32 @ 6.13.0`) to v3.x (ESP-IDF 5.x), which has an updated SPI flash driver. This is a major framework upgrade that may require API changes. USB flashing works perfectly and is the current deployment method.
 
-4. **Stop the WiFi reconnect ticker before shutting down WiFi.** `WiFi.disconnect(true)` fires a `SYSTEM_EVENT_STA_DISCONNECTED` event, which the wifi_manager reconnect handler catches and schedules a reconnect 5 seconds later. If the ticker fires during `Update.end()` → `esp_image_verify()`, the SPI flash read-back is corrupted by the concurrent WiFi radio startup. **Fix:** Call `wifiStopReconnect()` before `WiFi.disconnect()`.
+**Board configuration:** A custom board definition `boards/esp32-s3-devkitc-1-n16r8.json` is used with `memory_type: dio_qspi` and `flash_size: 16MB`. This matches the actual hardware better than the stock `esp32-s3-devkitc-1` (which assumes 8MB/no PSRAM), though it does not fix the DIO read bug.
 
-5. **Shut down WiFi before calling `Update.end()`.** The `esp_image_verify()` function inside `Update.end()` reads back the entire firmware from flash and computes a SHA-256 hash. Any concurrent SPI activity (WiFi, TLS teardown) can corrupt this read. **Fix:** `wifiStopReconnect()` → `http.end()` → `WiFi.disconnect(true)` → `WiFi.mode(WIFI_OFF)` → `delay(500)` → `Update.end()`.
+**Previous (incorrect) diagnosis:** Earlier troubleshooting attributed OTA failures to PSRAM cache coherency (WiFi DMA competing with TLS buffers in PSRAM). While removing `-DBOARD_HAS_PSRAM` changed symptoms, the actual root cause was the DIO SPI flash read wrap bug. The PSRAM/WiFi DMA theory was a misdiagnosis.
 
-6. **Only shut down WiFi on the success path.** If the download fails, do NOT call `wifiStopReconnect()` or `WiFi.mode(WIFI_OFF)` — otherwise WiFi stays permanently dead until reboot. The device needs WiFi to retry or continue normal operation.
+**What still applies from the original investigation:**
 
-**Diagnostic approach:** Add an MD5 check of the download buffer before writing to flash (`MD5Builder`). This distinguishes download corruption (MD5 mismatch before flash write) from flash write corruption (MD5 matches but image hash fails). In our case, with PSRAM enabled the download itself was corrupted; without PSRAM, the download was clean.
+1. **Stream directly to flash — do not buffer the entire firmware.** Without PSRAM, there isn't enough internal heap (~270 KB) to hold a ~1 MB firmware. Stream each chunk directly: `readBytes(ioBuf, n)` → `esp_ota_write(handle, ioBuf, n)`.
+
+2. **Allocate the IO buffer from internal SRAM heap, not the stack.** The ESP32 Arduino loop task has only 8 KB of stack. Use `heap_caps_malloc(CHUNK, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)`.
+
+3. **Stop the WiFi reconnect ticker before shutting down WiFi.** `WiFi.disconnect(true)` fires a disconnect event that schedules a reconnect. **Fix:** Call `wifiStopReconnect()` before `WiFi.disconnect()`.
+
+4. **Restore WiFi after a failed OTA.** If `Update.end()` or verification fails after WiFi was shut down, call `wifiResumeReconnect()` to restore connectivity. Without this, WiFi stays permanently dead until reboot.
+
+**Diagnostic approach:** The OTA code computes MD5 of the downloaded byte stream (via `MD5Builder`) and compares against the manifest before any verification. This proves download integrity. A flash write self-test (`esp_partition_write` 64 bytes → `esp_partition_read` → compare) at the start of OTA confirms whether the DIO read wrap bug is present — if the readback shows 32-byte repetition, OTA cannot succeed on this framework version.

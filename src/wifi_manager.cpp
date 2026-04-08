@@ -87,3 +87,8 @@ void wifiStopReconnect() {
     _timeoutTicker.detach();
     _reconnectScheduled = true;  // prevent rescheduling on disconnect event
 }
+
+void wifiResumeReconnect() {
+    _reconnectScheduled = false;
+    startConnect();
+}

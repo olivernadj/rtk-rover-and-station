@@ -14,6 +14,7 @@
 #include <HTTPClient.h>
 #include <Update.h>
 #include <esp_heap_caps.h>
+#include <MD5Builder.h>
 
 static uint32_t _lastCheck = 0;
 static uint8_t  _failCount = 0;
@@ -137,6 +138,9 @@ static bool performOta(const String& url, const String& expectedMd5) {
         return false;
     }
 
+    MD5Builder md5;
+    md5.begin();
+
     WiFiClient* stream = http.getStreamPtr();
     size_t written = 0;
     uint32_t lastActivity = millis();
@@ -154,6 +158,7 @@ static bool performOta(const String& url, const String& expectedMd5) {
         size_t toRead = min(avail, CHUNK);
         size_t bytesRead = stream->readBytes(ioBuf, toRead);
         if (bytesRead == 0) break;
+        md5.add(ioBuf, bytesRead);
         size_t n = Update.write(ioBuf, bytesRead);
         if (n != bytesRead) {
             logMsg("[OTA] Flash write error at %u bytes", written);
@@ -177,6 +182,18 @@ static bool performOta(const String& url, const String& expectedMd5) {
         return false;
     }
 
+    // Verify downloaded bytes match manifest MD5.
+    md5.calculate();
+    String computedMd5 = md5.toString();
+    if (!computedMd5.equalsIgnoreCase(expectedMd5)) {
+        Serial.printf("[OTA] Download MD5 mismatch! expected=%s computed=%s\n",
+                      expectedMd5.c_str(), computedMd5.c_str());
+        Update.abort();
+        http.end();
+        return false;
+    }
+    Serial.println("[OTA] Download MD5 verified OK");
+
     // Shut down WiFi before verification — prevents reconnect ticker from
     // calling WiFi.begin() during esp_image_verify() flash read-back.
     wifiStopReconnect();
@@ -188,6 +205,8 @@ static bool performOta(const String& url, const String& expectedMd5) {
     Serial.println("[OTA] Download complete, verifying image...");
     if (!Update.end()) {
         Serial.printf("[OTA] Update failed: %s\n", Update.errorString());
+        // Restore WiFi so the device can continue operating
+        wifiResumeReconnect();
         return false;
     }
 

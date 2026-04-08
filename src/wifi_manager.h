@@ -6,3 +6,4 @@ using WifiEventCallback = std::function<void()>;
 void wifiInit(WifiEventCallback onConnect, WifiEventCallback onDisconnect);
 bool wifiIsConnected();
 void wifiStopReconnect();
+void wifiResumeReconnect();

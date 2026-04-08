@@ -25,6 +25,9 @@ static BlinkPattern _current   = {COLOR_BLUE, 1};
 // Previous status flags for change detection (initialised to impossible values to force first log)
 static int8_t _prevWifi = -1, _prevGnss = -1, _prevNtp = -1, _prevMqtt = -1, _prevNtrip = -1;
 
+// Tracks the last time status was "OK" — used for reboot watchdog
+static uint32_t _lastOkMs = 0;
+
 static void setPixel(uint32_t color) {
     _pixel.setPixelColor(0, color);
     _pixel.show();
@@ -47,6 +50,7 @@ void ledInit() {
     setPixel(COLOR_OFF);
     _phase      = LedPhase::CYCLE_GAP;
     _phaseStart = millis();
+    _lastOkMs   = millis();
 }
 
 void ledUpdate(bool wifiOk, bool gnssOk, bool ntpOk, bool mqttOk, bool ntripOk) {
@@ -57,6 +61,10 @@ void ledUpdate(bool wifiOk, bool gnssOk, bool ntpOk, bool mqttOk, bool ntripOk) 
             if (now - _phaseStart >= LED_CYCLE_MS) {
                 _current    = selectPattern(wifiOk, gnssOk, ntpOk, mqttOk, ntripOk);
                 _blinksLeft = _current.count;
+
+                if (_current.color == COLOR_BLUE) {
+                    _lastOkMs = now;
+                }
 
                 if (wifiOk != _prevWifi || gnssOk != _prevGnss || ntpOk != _prevNtp ||
                     mqttOk != _prevMqtt || ntripOk != _prevNtrip) {
@@ -104,4 +112,8 @@ void ledUpdate(bool wifiOk, bool gnssOk, bool ntpOk, bool mqttOk, bool ntripOk) 
             }
             break;
     }
+}
+
+bool healthCheckReboot() {
+    return (millis() - _lastOkMs) >= HEALTH_REBOOT_TIMEOUT_MS;
 }
