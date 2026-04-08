@@ -131,7 +131,7 @@ Status is also printed to serial every 5 seconds:
 Published to `mqtt/metrics/v2` as JSON:
 
 ```json
-{"metric_type":"gauge","samples":{"lat":"511788630","lat_hp":"42","long":"-18262170","long_hp":"-15","alt":"102000","corr_age":"0","siv":"24","fix_type":"3","carr_soln":"2","wifi_rssi":"-52"},"timestamp":1775400000,"client":"rtk-stationary","labels":{"device":"esp32s3-74696F","mode":"stationary","fw_version":"0.6.0","wifi_ssid":"MyNetwork","project":"GPS"}}
+{"metric_type":"gauge","samples":{"lat":"511788630","lat_hp":"42","long":"-18262170","long_hp":"-15","alt":"102000","corr_age":"0","siv":"24","fix_type":"3","carr_soln":"2","wifi_rssi":"-52","corr_count":"142"},"timestamp":1775400000,"client":"rtk-stationary","labels":{"device":"esp32s3-74696F","mode":"stationary","fw_version":"0.12.1","wifi_ssid":"MyNetwork","project":"GPS"}}
 ```
 
 | Field | Location | Description |
@@ -144,6 +144,7 @@ Published to `mqtt/metrics/v2` as JSON:
 | `fix_type` | samples | 0=none, 3=3D, 5=time-only |
 | `carr_soln` | samples | 0=none, 1=float RTK, 2=fixed RTK |
 | `wifi_rssi` | samples | WiFi signal strength in dBm |
+| `corr_count` | samples | Monotonic counter of RTCM corrections sent (stationary) or received (rover) |
 | `device` | labels | Hostname (MAC-derived, e.g. esp32s3-314A2C) |
 | `mode` | labels | "stationary" or "rover" |
 | `fw_version` | labels | Firmware version from CHANGELOG.md |
@@ -162,6 +163,30 @@ OTA is opt-in. Add `-D OTA_ENABLED` to `build_flags` in `platformio.ini` to enab
 When enabled, the device polls a manifest URL every 5 minutes over HTTPS with Basic Auth. If the firmware version has changed, it streams the new binary directly to flash using an internal SRAM IO buffer, shuts down WiFi to ensure exclusive SPI bus access, verifies the image hash, and reboots automatically.
 
 Configure the server URL in `src/config.h` and credentials in `src/secrets.cpp`. See [docs/OTA.md](docs/OTA.md) for full instructions on setting up your own OTA server.
+
+## Measured Accuracy
+
+Tested 2026-04-08 with rover antenna stationary, ~261 cm from the base station antenna. 74 samples over 20 minutes, RTK Fixed (carr_soln=2) 100% of the time, 30--32 satellites, correction age 0s.
+
+### Horizontal (relative to mean position)
+
+| Metric | Value |
+|--------|-------|
+| Std dev (2D) | 0.34 cm |
+| CEP50 (50% of points within) | 0.26 cm |
+| CEP95 (95% of points within) | 0.63 cm |
+| Max error | 0.70 cm |
+
+### Vertical (relative to mean altitude)
+
+| Metric | Value |
+|--------|-------|
+| Std dev | 0.64 cm |
+| 95th percentile | 1.34 cm |
+| Max error | 2.06 cm |
+| Total range | 3.6 cm |
+
+Sub-centimeter horizontal precision, ~1.3 cm vertical (95%). Vertical error is roughly 2x horizontal, which is typical for GNSS.
 
 ## Dependencies
 

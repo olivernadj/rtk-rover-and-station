@@ -106,7 +106,7 @@ When making changes: update `CHANGELOG.md` first, then build.
 
 Published to `mqtt/metrics/v2` as JSON:
 ```json
-{"metric_type":"gauge","samples":{"lat":"461566930","lat_hp":"42","long":"199614664","long_hp":"-15","alt":"133247","corr_age":"0","siv":"24","fix_type":"3","carr_soln":"2","wifi_rssi":"-52"},"timestamp":1775400000,"client":"rtk-stationary","labels":{"device":"esp32s3-314A2C","mode":"stationary","fw_version":"0.6.0","wifi_ssid":"MyNetwork","project":"GPS"}}
+{"metric_type":"gauge","samples":{"lat":"461566930","lat_hp":"42","long":"199614664","long_hp":"-15","alt":"133247","corr_age":"0","siv":"24","fix_type":"3","carr_soln":"2","wifi_rssi":"-52","corr_count":"142"},"timestamp":1775400000,"client":"rtk-stationary","labels":{"device":"esp32s3-314A2C","mode":"stationary","fw_version":"0.12.1","wifi_ssid":"MyNetwork","project":"GPS"}}
 ```
 
 Key fields:
@@ -115,6 +115,7 @@ Key fields:
 - `corr_age` — stationary: seconds since last RTCM push to caster; rover: seconds since last RTK-corrected position (carr_soln > 0)
 - `siv`, `fix_type`, `carr_soln` — satellite count, fix type (0/3/5), carrier solution (0=none, 1=float, 2=fixed)
 - `wifi_rssi` — WiFi signal strength in dBm
+- `corr_count` — monotonic counter of RTCM corrections sent (stationary) or received (rover)
 - `device` — MAC-derived hostname (e.g. `esp32s3-314A2C`)
 - `fw_version` — from `CHANGELOG.md` via `read_version.py`
 - `wifi_ssid` — connected WiFi access point name
