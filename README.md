@@ -12,9 +12,21 @@ Both modes share: ZED-F9P I2C driver, multi-AP WiFi manager, NTP sync, MQTT tele
 | Component | Module | Link |
 |-----------|--------|------|
 | MCU | ESP32-S3-WROOM1 N16R8 Dev Board | [<img src="docs/images/esp32-s3.webp" width="80">](https://www.aliexpress.com/item/1005006418608267.html) |
-| GNSS | ZED-F9P Development Board (I2C, SDA=GPIO 8, SCL=GPIO 9, 400 kHz) | [<img src="docs/images/zed-f9p.webp" width="80">](https://www.aliexpress.com/item/1005007991451892.html) |
-| Antenna | Multi-band GNSS Antenna (L1/L2/L5, GPS/Galileo/GLONASS/BeiDou) | [<img src="docs/images/gnss-antenna.webp" width="80">](https://www.aliexpress.com/item/1005006699317206.html) |
+| GNSS | ZED-F9P Development Board (URTK1.2, I2C, SDA=GPIO 8, SCL=GPIO 9, 400 kHz) | [<img src="docs/images/zed-f9p.webp" width="80">](https://www.aliexpress.com/item/1005007991451892.html) |
+| Antenna | Multi-band GNSS Antenna (L1/L2/L5, GPS/Galileo/GLONASS/BeiDou, SMA) | [<img src="docs/images/gnss-antenna.webp" width="80">](https://www.aliexpress.com/item/1005006699317206.html) |
 | Status LED | Onboard NeoPixel on GPIO 48 | -- |
+
+### GNSS board notes (URTK1.2)
+
+The linked breakout is silkscreened `URTK1.2` and carries a `ZED-F9P-01B-01` module (u-blox HPG firmware family).
+
+- **Power:** 5V via USB-C (`J1`) or the `5V` pad through an onboard LDO, **or** 3V3 directly on the `3V3` pad (bypasses the LDO -- use this when hosting from a 3V3-only MCU rail). Do not drive both simultaneously.
+- **I2C:** slave address `0x42` (u-blox factory default). Pull-ups are populated on the breakout.
+- **Backup battery:** onboard rechargeable MS621FE retains ephemeris/almanac and RTC -- hot-start TTFF ~1-2 s vs. ~30 s cold after brief power loss.
+- **Onboard status LEDs:** `PWR`, `PPS`, `RTK`, `FENCE` -- verify power, 1 PPS pulse, and RTK fix without a serial monitor. Handy for field bring-up.
+- **Antenna connectors:** `J2` SMA through-hole and `J4` u.FL/IPEX. The linked antenna uses SMA.
+- **Configuration:** the USB-C port enumerates as USB CDC (`/dev/ttyACM0` on Linux); [u-blox u-center](https://www.u-blox.com/en/product/u-center) connects directly to configure update rate, constellations, and output protocols. Settings persist in the module's flash and battery-backed RAM -- no MCU needed.
+- **Protocols used by this firmware:** UBX (telemetry + RTCM push) and RTCM3 (corrections in/out). NMEA is available but not consumed.
 
 ## Quick Start
 
