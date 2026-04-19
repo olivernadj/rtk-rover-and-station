@@ -3,18 +3,19 @@
 PlatformIO firmware for ESP32-S3 + u-blox ZED-F9P providing centimeter-level GNSS positioning. One codebase, two compile-time modes:
 
 - **Stationary (Base Station)** -- uses a known fixed position (or survey-in) to generate RTCM corrections broadcast to one or more NTRIP casters simultaneously, while publishing position metrics via MQTT.
-- **Rover (Mobile Unit)** -- receives NTRIP RTK corrections and feeds them to the ZED-F9P for cm-level accuracy. Supports pluggable display drivers.
+- **Rover (Mobile Unit)** -- receives NTRIP RTK corrections and feeds them to the ZED-F9P for cm-level accuracy. Runs on either a headless ESP32-S3 devkit or an ESP32-2432S028 USB-C "CYD" with a full 320x240 touchscreen HUD (preset A/B/C/D registers, live ↔/↕ distance to selected preset).
 
-Both modes share: ZED-F9P I2C driver, multi-AP WiFi manager, NTP sync, MQTT telemetry, and NeoPixel status LED.
+Both modes share: ZED-F9P I2C driver, multi-AP WiFi manager, NTP sync, MQTT telemetry, and a status LED (NeoPixel on S3, three-GPIO RGB on CYD).
 
 ## Hardware
 
 | Component | Module | Link |
 |-----------|--------|------|
-| MCU | ESP32-S3-WROOM1 N16R8 Dev Board | [<img src="docs/images/esp32-s3.webp" width="80">](https://www.aliexpress.com/item/1005006418608267.html) |
-| GNSS | ZED-F9P Development Board (URTK1.2, I2C, SDA=GPIO 8, SCL=GPIO 9, 400 kHz) | [<img src="docs/images/zed-f9p.webp" width="80">](https://www.aliexpress.com/item/1005007991451892.html) |
+| MCU (S3) | ESP32-S3-WROOM1 N16R8 Dev Board | [<img src="docs/images/esp32-s3.webp" width="80">](https://www.aliexpress.com/item/1005006418608267.html) |
+| MCU (CYD, rover-only) | ESP32-2432S028 USB-C "Cheap Yellow Display" (ESP32-WROOM-32, 320x240 ILI9341, XPT2046 touch, onboard RGB LED) | -- |
+| GNSS | ZED-F9P Development Board (URTK1.2, I2C, SDA=GPIO 8/22, SCL=GPIO 9/27, 400 kHz) | [<img src="docs/images/zed-f9p.webp" width="80">](https://www.aliexpress.com/item/1005007991451892.html) |
 | Antenna | Multi-band GNSS Antenna (L1/L2/L5, GPS/Galileo/GLONASS/BeiDou, SMA) | [<img src="docs/images/gnss-antenna.webp" width="80">](https://www.aliexpress.com/item/1005006699317206.html) |
-| Status LED | Onboard NeoPixel on GPIO 48 | -- |
+| Status LED | NeoPixel on GPIO 48 (S3) / active-LOW RGB on GPIO 4/16/17 (CYD) | -- |
 
 ### GNSS board notes (URTK1.2)
 
@@ -50,8 +51,9 @@ Edit `src/config.h` to set your base station coordinates and other site-specific
 ### 2. Build and flash
 
 ```bash
-pio run -e stationary -t upload   # Base station
-pio run -e rover -t upload        # Rover
+pio run -e stationary -t upload   # Base station (ESP32-S3)
+pio run -e rover -t upload        # Rover on ESP32-S3 devkit (headless + NullDisplay)
+pio run -e rover-cyd -t upload    # Rover on ESP32-2432S028 CYD with touchscreen HUD
 pio device monitor --baud 115200  # Serial monitor
 ```
 
@@ -162,11 +164,51 @@ Published to `mqtt/metrics/v2` as JSON:
 | `fw_version` | labels | Firmware version from CHANGELOG.md |
 | `wifi_ssid` | labels | Connected WiFi access point name |
 
+## Rover on the CYD (`env:rover-cyd`)
+
+An alternate rover host targeting the **ESP32-2432S028 USB-C** "Cheap Yellow Display" (plain ESP32-WROOM-32 + 320x240 ILI9341 TFT + resistive XPT2046 touch + onboard active-LOW RGB LED). Ships a full interactive HUD; the ESP32-S3 rover env is unchanged and still supported.
+
+### Wiring
+
+GNSS I2C comes out on the CYD's **CN1** header (not P3 -- P3's `IO35` is input-only and can't drive SDA):
+
+| CN1 pin | -> | URTK1.2 pad |
+|---------|----|-------------|
+| `GND`   | -> | `GND` |
+| `IO22`  | -> | `SDA` |
+| `IO27`  | -> | `SCL` |
+
+The URTK1.2 ZED-F9P is fine on its own 5V USB-C for power (dedicated phone charger works); share only `GND + SDA + SCL` with the CYD so WiFi noise from the CYD rail doesn't ride into the ZED's supply.
+
+### HUD layout
+
+- **Header** -- WiFi bars + SSID + RSSI, NTRIP status dot (green when corrections are flowing), UTC clock
+- **Pill (`A/B/C/D`)** -- background color encodes RTCM correction freshness: green <5 s, amber <15 s, red beyond
+- **Target + current cells** -- selected preset's saved coords next to the live rover coords
+- **Hero `↔/↕` band** -- horizontal + vertical distance from the rover to the selected preset; smoothed over a 10 s rolling average of position samples so the numbers don't jitter. `↕` is signed: positive = rover above the reference, negative = below
+- **Stats row** -- total SATS, AGE (RTCM correction age, color-coded like the pill), DOP
+- **Button row** -- four buttons A/B/C/D with three visual states: empty outline (no saved position), filled (saved), accent ring (selected)
+
+### Interaction
+
+- **Tap** `A`/`B`/`C`/`D` -> select that register (pill letter, target cell, hero band all retarget)
+- **Long-press** (>= 700 ms) `A`/`B`/`C`/`D` -> save the rover's current position (10 s average) into that slot; button flashes accent-filled as confirmation
+- Saved presets persist across reboot (NVS `rover-pres` namespace)
+- First 3D fix after a fresh flash auto-populates slot `A` so the delta band has something to show immediately
+
+### Build + flash
+
+```bash
+pio run -e rover-cyd -t upload --upload-port /dev/ttyUSB0
+```
+
+Bench-test the HUD without a ZED attached by uncommenting `-D CYD_FAKE_STATE` in the env's `build_flags` -- `display_cyd.cpp`'s rotator cycles `selected`, `corr_age`, and delta values so every visual branch is exercised.
+
 ## Adding a Display Driver (Rover)
 
 1. Create `src/display_<name>.h` subclassing `IDisplay` from `src/display.h`
-2. Implement `void init()` and `void update(const GnssData& data)`
-3. In `src/main.cpp`, replace `NullDisplay` with your driver instance
+2. Implement `void init()` and `void update(const GnssData& data)`. Interactive drivers can also override `selectPreset(uint8_t)` and `savePreset(uint8_t)` (both default to no-op)
+3. In `src/main.cpp`, replace `NullDisplay` with your driver instance -- guard with `#ifdef BOARD_<name>` if you're adding a new env
 
 ## OTA (Over-The-Air) Updates
 

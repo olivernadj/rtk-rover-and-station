@@ -80,11 +80,11 @@ Goal: the HUD becomes interactive. Tap A/B/C/D selects, long-press A/B/C/D overw
 
 ## Commit 4 — Polish + PR
 
-- [ ] Full bench run: walk away from preset A for 10–20 m, watch ↔ climb then fall back to <0.02 m on return.
-- [ ] Check no-RTK states: empty SSID, NTRIP down, `corr_age > 15 s` — pill goes red, AGE turns red, HUD stays legible.
-- [ ] Sanity-check S3 `rover` env still builds and runs (no regressions from shared files).
-- [ ] CHANGELOG entry + version bump.
-- [ ] Update `README.md` rover section: new CYD env, how to flash, feature list.
+- [x] Full bench run: walk away from preset A for 10–20 m, watch ↔ climb then fall back to <0.02 m on return. *(Field-verified on an excavator, 2026-04-19.)*
+- [x] Check no-RTK states: empty SSID, NTRIP down, `corr_age > 15 s` — pill goes red, AGE turns red, HUD stays legible. *(Verified during field run.)*
+- [x] Sanity-check S3 `rover` env still builds and runs (no regressions from shared files). *(Both envs built green at every commit.)*
+- [x] CHANGELOG entry + version bump. *(0.13.0.)*
+- [x] Update `README.md` rover section: new CYD env, how to flash, feature list.
 - [ ] Push branch, open PR against `main`.
 - [ ] After merge: delete this plan doc (or keep as historical record under `docs/`).
 

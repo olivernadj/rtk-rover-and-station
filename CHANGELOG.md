@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-04-19
+
+### Added
+- New `[env:rover-cyd]` PlatformIO environment: runs the rover on an ESP32-2432S028 USB-C "CYD" (Cheap Yellow Display) -- 320x240 ILI9341 TFT, resistive XPT2046 touch, onboard active-LOW RGB status LED, ~930 KB binary on plain WROOM-32's 4 MB flash
+- Full rover HUD driver `CydDisplay` (`src/display_cyd.cpp`): header (WiFi bars + SSID/RSSI, NTRIP status dot, UTC clock), preset pill with RTCM-age-coded color, target + current coord cells, hero delta band (horiz/vert distance to selected preset, 10 s rolling-average smoothed), SATS/AGE/HDOP stats row, A/B/C/D tap-to-select + long-press-to-save button row
+- XPT2046 touch driver on a dedicated soft-SPI bus (`src/touch_cyd.{h,cpp}`); gesture state machine distinguishes tap (<250 ms press) from long-press (>=700 ms press with minimal movement)
+- NVS-backed preset persistence in the `rover-pres` namespace -- A/B/C/D slots survive reboot
+- `pdop` field on `GnssData`, populated from NAV-PVT each cycle and surfaced as the HUD's DOP indicator
+- Virtual `selectPreset` / `savePreset` methods on `IDisplay` (default no-op) for touch-driven display drivers
+
+### Changed
+- `src/config.h.example` gates I2C and status-LED pin constants on a new `BOARD_CYD` build flag (CYD uses SDA=22 / SCL=27 on the CN1 header, and a three-GPIO RGB LED at 4/16/17 instead of the S3 NeoPixel at 48)
+- `src/status_led.cpp` gains a `BOARD_CYD` path driving the three-GPIO active-LOW RGB LED; blink state machine is shared with the NeoPixel path
+- `src/main.cpp` moves `display->init()` ahead of WiFi/MQTT/NTRIP init so sprite-backed drivers claim a freshly contiguous chunk of internal DRAM before those modules reserve their buffers
+- Long-press save captures the 10 s averaged position rather than a single sample, so a stored point can't be biased by a noisy fix
+
+### Docs
+- README hardware section documents the URTK1.2 ZED-F9P breakout (power options, I2C address, backup battery, onboard LEDs, antenna connectors, u-center setup)
+- New README section covers the CYD rover HUD (layout, interaction model, flashing instructions)
+
 ## [0.12.1] - 2026-04-08
 
 ### Changed
