@@ -65,6 +65,14 @@ void setup() {
     delay(1000);  // let power rails stabilize before initializing peripherals
     Serial.begin(115200);
 
+#ifdef MODE_ROVER
+    // Display init must run BEFORE WiFi/MQTT/NTRIP: those reserve large
+    // contiguous chunks of internal DRAM, so a sprite-backed HUD driver
+    // (e.g. CydDisplay) needs a fresh heap to get the biggest possible
+    // contiguous block for its off-screen framebuffer.
+    display->init();
+#endif
+
     ledInit();
 
     if (!gnssInit()) {
@@ -81,7 +89,6 @@ void setup() {
 
 #ifdef MODE_ROVER
     ntripInit();
-    display->init();
 #endif
 
 #ifdef OTA_ENABLED

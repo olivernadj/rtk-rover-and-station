@@ -2,15 +2,30 @@
 #if defined(MODE_ROVER) && defined(BOARD_CYD)
 
 #include "display.h"
+#include "rover_state.h"
 
-// CYD (ESP32-2432S028 USB-C) driver for the rover HUD.
-// First milestone: renders a plain status screen (WiFi + GNSS fix + coords).
-// Second milestone (future commit): replaces the status block with the full
-// HUD defined in ../docs or the UI-mockup repo (header / pill / delta band / buttons).
+// CYD rover HUD driver. Renders the full HUD from ui/mockup.py one-for-one
+// using TFT_eSPI + GFX Free Fonts + drawLine primitives for the arrow icons.
 class CydDisplay : public IDisplay {
 public:
     void init() override;
     void update(const GnssData& data) override;
+
+private:
+    RoverState _state{};
+
+    void drawHeader();
+    void drawPresetPill();
+    void drawCoords();
+    void drawDelta();
+    void drawStats();
+    void drawButtons();
+
+#ifdef CYD_FAKE_STATE
+    // Bench-test helper: rotates `_state` through every visual branch
+    // (selected cycling, empty vs saved, corr_age sweeping). Ignores `data`.
+    void rotateFakeState();
+#endif
 };
 
 #endif
