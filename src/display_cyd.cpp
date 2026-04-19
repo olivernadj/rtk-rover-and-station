@@ -22,10 +22,10 @@ static constexpr const char* NVS_NAMESPACE = "rover-pres";
 // state even in the worst-case phase alignment.
 static constexpr uint32_t FLASH_MS = 250;
 
-// Rolling position buffer: 15s of samples at the HUD's 4 Hz redraw rate.
+// Rolling position buffer: 10s of samples at the HUD's 4 Hz redraw rate.
 // Used to smooth the delta-band "hero" readings and to capture a stable
 // averaged position at the moment a user long-presses A/B/C/D.
-// 64 slots = 16s headroom at 4 Hz; each slot is 24 B so total ~1.5 KB.
+// 64 slots leaves plenty of headroom; each slot is 24 B so total ~1.5 KB.
 namespace {
 struct PositionSample {
     double   lat_deg;
@@ -34,7 +34,7 @@ struct PositionSample {
     uint32_t ms;
 };
 constexpr size_t   POSBUF_SIZE    = 64;
-constexpr uint32_t AVG_WINDOW_MS  = 15000;
+constexpr uint32_t AVG_WINDOW_MS  = 10000;
 PositionSample _posBuf[POSBUF_SIZE];
 size_t _posBufHead  = 0;
 size_t _posBufCount = 0;
@@ -447,7 +447,7 @@ void CydDisplay::savePreset(uint8_t i) {
     _buttonFlashUntilMs[i] = millis() + FLASH_MS;
     Serial.printf("[HUD] saved preset %c at %.6f,%.6f,%.2fm (avg of %s)\n",
                   (char)('A' + i), lat, lon, alt,
-                  avg.valid ? "last 15 s" : "single sample -- buffer cold");
+                  avg.valid ? "last 10 s" : "single sample -- buffer cold");
 }
 
 // ---- init + update ---------------------------------------------------------
@@ -568,7 +568,9 @@ void CydDisplay::update(const GnssData& data) {
             if (_state.preset_saved[i]) {
                 _state.preset_dh[i] = horizDistM(refLat, refLon,
                                                  _state.preset_lat[i], _state.preset_lon[i]);
-                _state.preset_dv[i] = _state.preset_alt[i] - refAlt;
+                // dv = current - preset: positive means rover is ABOVE the
+                // reference, negative means rover is BELOW it ("shrinking").
+                _state.preset_dv[i] = refAlt - _state.preset_alt[i];
             }
         }
     }
