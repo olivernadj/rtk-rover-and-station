@@ -106,6 +106,7 @@ void gnssUpdate() {
         _data.siv       = _gnss.getSIV();
         _data.fix_type  = _gnss.getFixType();
         _data.carr_soln = _gnss.getCarrierSolutionType();
+        _data.pdop      = _gnss.getPDOP();
 
 #ifdef MODE_ROVER
         // Convert lastCorrectionAge enum (4-bit) to upper-bound seconds

@@ -2,8 +2,11 @@
 
 #include "display_cyd.h"
 #include "display_cyd_palette.h"
+#include "ntrip_client.h"
 #include <Arduino.h>
 #include <TFT_eSPI.h>
+#include <WiFi.h>
+#include <time.h>
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
@@ -90,6 +93,18 @@ static int wifiBars(int rssi) {
     return bars;
 }
 
+// Horizontal ground distance in metres between two WGS-84 lat/lon points.
+// Equirectangular projection is accurate enough at walking scale (<1 km);
+// we avoid the full haversine sqrt/trig for speed.
+static float horizDistM(double lat1, double lon1, double lat2, double lon2) {
+    constexpr double R = 6371000.0;
+    constexpr double DEG2RAD = M_PI / 180.0;
+    double meanLat = (lat1 + lat2) * 0.5 * DEG2RAD;
+    double x = (lon2 - lon1) * DEG2RAD * cos(meanLat);
+    double y = (lat2 - lat1) * DEG2RAD;
+    return (float)(sqrt(x * x + y * y) * R);
+}
+
 static void drawArrowHoriz(int cx, int cy, int w, int h, uint8_t colorIdx) {
     int left   = cx - w / 2;
     int right  = cx + w / 2;
@@ -132,8 +147,11 @@ void CydDisplay::drawHeader() {
     frame.setTextFont(2);   // built-in 16px bitmap; more compact than 9pt GFX
     frame.setTextDatum(TL_DATUM);
     frame.setTextColor(PI_TEXT_DIM, PI_SURFACE);
+    // SSID truncated to 12 chars so long names don't run into the NTRIP dot
+    // at x=166; RSSI shown as a bare negative number, strength indicated by
+    // the bar graph to the left.
     char buf[48];
-    snprintf(buf, sizeof(buf), "%s  %d dBm", _state.wifi_ssid, _state.wifi_rssi);
+    snprintf(buf, sizeof(buf), "%.12s %d", _state.wifi_ssid, _state.wifi_rssi);
     frame.drawString(buf, 20, 1);
 
     uint8_t ntripCol = _state.ntrip_ok ? PI_OK_GREEN : PI_BAD_RED;
@@ -331,8 +349,14 @@ void CydDisplay::init() {
         Serial.println("[CYD] 4-bit sprite alloc FAILED");
     }
 
-#ifdef CYD_FAKE_STATE
     _state = {};
+    _state.selected = 0;
+    strncpy(_state.wifi_ssid, "--", sizeof(_state.wifi_ssid));
+    _state.wifi_rssi = -100;
+    strncpy(_state.time_utc, "--:--:--", sizeof(_state.time_utc));
+
+#ifdef CYD_FAKE_STATE
+    // Seed fake state so the rotator starts in a sensible place.
     _state.lat_deg = 47.498232;
     _state.lon_deg = 19.023914;
     _state.alt_m   = 137.40f;
@@ -362,7 +386,6 @@ void CydDisplay::init() {
     _state.wifi_rssi = -58;
     _state.ntrip_ok  = true;
     strncpy(_state.time_utc, "10:34:52", sizeof(_state.time_utc));
-    _state.selected = 0;
 #endif
 }
 
@@ -378,7 +401,65 @@ void CydDisplay::update(const GnssData& data) {
     (void)data;
     rotateFakeState();
 #else
-    (void)data;
+    // ---- map live GNSS + WiFi + NTRIP + time into _state ------------------
+
+    if (data.valid) {
+        _state.lat_deg  = data.lat / 1e7;
+        _state.lon_deg  = data.lon / 1e7;
+        _state.alt_m    = data.alt / 1000.0f;
+        _state.siv      = data.siv;
+        _state.corr_age = data.corr_age;
+        _state.hdop     = data.pdop / 100.0f;
+
+        // Auto-populate preset A on the first 3D fix so the delta band has
+        // something to display during bench-testing -- manual save (Commit 3)
+        // replaces this path once touch is wired.
+        static bool _autoSavedA = false;
+        if (!_autoSavedA && data.fix_type >= 3) {
+            _state.preset_saved[0] = true;
+            _state.preset_lat[0]   = _state.lat_deg;
+            _state.preset_lon[0]   = _state.lon_deg;
+            _state.preset_alt[0]   = _state.alt_m;
+            _autoSavedA = true;
+        }
+
+        // Refresh distances to every saved preset (selected one is what the
+        // HUD reads; the others are free to compute and ready for Commit 3).
+        for (int i = 0; i < 4; ++i) {
+            if (_state.preset_saved[i]) {
+                _state.preset_dh[i] = horizDistM(_state.lat_deg, _state.lon_deg,
+                                                 _state.preset_lat[i], _state.preset_lon[i]);
+                _state.preset_dv[i] = _state.preset_alt[i] - _state.alt_m;
+            }
+        }
+    }
+
+    // WiFi row: live SSID + RSSI when connected, "--" otherwise.
+    // WiFi.SSID() returns a temporary String; copy directly so the temporary
+    // stays alive across the strncpy. (Saving .c_str() to a local ptr first
+    // would be UB -- the String dies at the semicolon.)
+    if (WiFi.isConnected()) {
+        strncpy(_state.wifi_ssid, WiFi.SSID().c_str(), sizeof(_state.wifi_ssid) - 1);
+        _state.wifi_ssid[sizeof(_state.wifi_ssid) - 1] = '\0';
+        _state.wifi_rssi = WiFi.RSSI();
+    } else {
+        strncpy(_state.wifi_ssid, "--", sizeof(_state.wifi_ssid));
+        _state.wifi_rssi = -100;
+    }
+
+    // NTRIP dot: green means corrections are actively flowing (same rule as
+    // the status LED in status_led.cpp)
+    _state.ntrip_ok = ntripIsConnected() && data.corr_age < 60;
+
+    // UTC clock from NTP-synced system time
+    time_t t = time(nullptr);
+    if (t > 1577836800UL) {   // > 2020-01-01 means NTP has synced
+        struct tm tm_utc;
+        gmtime_r(&t, &tm_utc);
+        strftime(_state.time_utc, sizeof(_state.time_utc), "%H:%M:%S", &tm_utc);
+    } else {
+        strncpy(_state.time_utc, "--:--:--", sizeof(_state.time_utc));
+    }
 #endif
 
     frame.fillSprite(PI_BG);
