@@ -16,6 +16,7 @@ struct GnssData {
     uint8_t  siv;       // satellites in view
     uint8_t  fix_type;  // 0=no fix, 2=2D, 3=3D, 4=GNSS+DR, 5=time only
     uint8_t  carr_soln; // 0=none, 1=float RTK, 2=fixed RTK
+    uint16_t pdop;      // position DOP × 100 (e.g. 60 = 0.6), from NAV-PVT
     bool     valid;     // true when data has been populated at least once
 };
 

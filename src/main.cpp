@@ -17,6 +17,10 @@
 #ifdef MODE_ROVER
 #include "ntrip_client.h"
 #include "display.h"
+#ifdef BOARD_CYD
+#include "display_cyd.h"
+#include "touch_cyd.h"
+#endif
 #endif
 
 #include <Arduino.h>
@@ -28,8 +32,13 @@ static bool     _ntpSynced   = false;
 static uint32_t _lastPublish = 0;
 
 #ifdef MODE_ROVER
+#ifdef BOARD_CYD
+static CydDisplay  _cydDisplay;
+static IDisplay*   display = &_cydDisplay;
+#else
 static NullDisplay _nullDisplay;
 static IDisplay*   display = &_nullDisplay;
+#endif
 #endif
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -57,10 +66,22 @@ void setup() {
     delay(1000);  // let power rails stabilize before initializing peripherals
     Serial.begin(115200);
 
+#ifdef MODE_ROVER
+    // Display init must run BEFORE WiFi/MQTT/NTRIP: those reserve large
+    // contiguous chunks of internal DRAM, so a sprite-backed HUD driver
+    // (e.g. CydDisplay) needs a fresh heap to get the biggest possible
+    // contiguous block for its off-screen framebuffer.
+    display->init();
+#ifdef BOARD_CYD
+    touchInit();
+#endif
+#endif
+
     ledInit();
 
     if (!gnssInit()) {
-        logMsg("[GNSS] Init failed - check I2C wiring (SDA=8, SCL=9)");
+        logMsg("[GNSS] Init failed - check I2C wiring (SDA=%u, SCL=%u)",
+               GNSS_SDA_PIN, GNSS_SCL_PIN);
     }
 
     mqttInit();
@@ -72,7 +93,6 @@ void setup() {
 
 #ifdef MODE_ROVER
     ntripInit();
-    display->init();
 #endif
 
 #ifdef OTA_ENABLED
@@ -96,6 +116,15 @@ void loop() {
 #ifdef MODE_ROVER
     // 2b. Fetch RTCM corrections from caster and push to ZED-F9P
     ntripUpdate();
+#ifdef BOARD_CYD
+    // Poll touch first so a tap in this loop iteration is reflected by
+    // display->update() below in the same frame.
+    TouchEvent ev = touchPoll();
+    if (ev.button >= 0) {
+        if      (ev.gesture == TouchGesture::Tap)       display->selectPreset((uint8_t)ev.button);
+        else if (ev.gesture == TouchGesture::LongPress) display->savePreset  ((uint8_t)ev.button);
+    }
+#endif
     display->update(gnssGetData());
 #endif
 

@@ -3,8 +3,14 @@
 #include <stddef.h>
 
 // I2C
+#ifdef BOARD_CYD
+// CYD exposes free GPIOs 22 + 27 on the CN1 header, alongside GND + 3V3.
+constexpr uint8_t  GNSS_SDA_PIN              = 22;
+constexpr uint8_t  GNSS_SCL_PIN              = 27;
+#else
 constexpr uint8_t  GNSS_SDA_PIN              = 8;
 constexpr uint8_t  GNSS_SCL_PIN              = 9;
+#endif
 constexpr uint32_t GNSS_I2C_FREQ             = 400000UL;
 
 // GPS sampling
@@ -27,8 +33,16 @@ constexpr char     NTP_SERVER[]              = "pool.ntp.org";
 constexpr long     NTP_GMT_OFFSET_SEC        = 0;
 constexpr int      NTP_DAYLIGHT_OFFSET       = 0;
 
-// Status LED (NeoPixel on GPIO 48)
+// Status LED
+#ifdef BOARD_CYD
+// CYD has a common-anode RGB LED, active LOW, on three separate GPIOs.
+constexpr uint8_t  LED_R_PIN                 = 4;
+constexpr uint8_t  LED_G_PIN                 = 16;
+constexpr uint8_t  LED_B_PIN                 = 17;
+#else
+// NeoPixel (WS2812) on a single GPIO.
 constexpr uint8_t  LED_PIN                   = 48;
+#endif
 constexpr uint32_t LED_CYCLE_MS              = 5000UL;
 constexpr uint32_t LED_BLINK_ON_MS           = 200UL;
 constexpr uint32_t LED_BLINK_OFF_MS          = 200UL;
