@@ -19,6 +19,7 @@
 #include "display.h"
 #ifdef BOARD_CYD
 #include "display_cyd.h"
+#include "touch_cyd.h"
 #endif
 #endif
 
@@ -71,6 +72,9 @@ void setup() {
     // (e.g. CydDisplay) needs a fresh heap to get the biggest possible
     // contiguous block for its off-screen framebuffer.
     display->init();
+#ifdef BOARD_CYD
+    touchInit();
+#endif
 #endif
 
     ledInit();
@@ -112,6 +116,15 @@ void loop() {
 #ifdef MODE_ROVER
     // 2b. Fetch RTCM corrections from caster and push to ZED-F9P
     ntripUpdate();
+#ifdef BOARD_CYD
+    // Poll touch first so a tap in this loop iteration is reflected by
+    // display->update() below in the same frame.
+    TouchEvent ev = touchPoll();
+    if (ev.button >= 0) {
+        if      (ev.gesture == TouchGesture::Tap)       display->selectPreset((uint8_t)ev.button);
+        else if (ev.gesture == TouchGesture::LongPress) display->savePreset  ((uint8_t)ev.button);
+    }
+#endif
     display->update(gnssGetData());
 #endif
 

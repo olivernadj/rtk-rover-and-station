@@ -10,9 +10,15 @@ class CydDisplay : public IDisplay {
 public:
     void init() override;
     void update(const GnssData& data) override;
+    void selectPreset(uint8_t i) override;
+    void savePreset  (uint8_t i) override;
 
 private:
     RoverState _state{};
+    bool       _autoSavedA            = false;   // set after first RTK auto-save or an NVS load of slot 0
+    bool       _hasLiveFix            = false;   // true once data.valid && fix_type >= 3
+    uint32_t   _pillFlashUntilMs      = 0;       // accent override on selectPreset
+    uint32_t   _buttonFlashUntilMs[4] = {0, 0, 0, 0};
 
     void drawHeader();
     void drawPresetPill();
@@ -20,6 +26,9 @@ private:
     void drawDelta();
     void drawStats();
     void drawButtons();
+
+    void loadPresetsFromNvs();
+    void writePresetToNvs(uint8_t i);
 
 #ifdef CYD_FAKE_STATE
     // Bench-test helper: rotates `_state` through every visual branch

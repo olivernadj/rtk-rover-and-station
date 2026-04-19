@@ -6,10 +6,67 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
 #include <WiFi.h>
+#include <Preferences.h>
 #include <time.h>
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+
+// NVS-backed preset persistence. Namespace stays open for the life of the
+// process so writes after each savePreset are cheap.
+static Preferences _prefs;
+static constexpr const char* NVS_NAMESPACE = "rover-pres";
+
+// Haptic flash duration after a tap or long-press. 250 ms matches the
+// HUD's redraw interval -- guarantees at least one frame shows the flashed
+// state even in the worst-case phase alignment.
+static constexpr uint32_t FLASH_MS = 250;
+
+// Rolling position buffer: 15s of samples at the HUD's 4 Hz redraw rate.
+// Used to smooth the delta-band "hero" readings and to capture a stable
+// averaged position at the moment a user long-presses A/B/C/D.
+// 64 slots = 16s headroom at 4 Hz; each slot is 24 B so total ~1.5 KB.
+namespace {
+struct PositionSample {
+    double   lat_deg;
+    double   lon_deg;
+    float    alt_m;
+    uint32_t ms;
+};
+constexpr size_t   POSBUF_SIZE    = 64;
+constexpr uint32_t AVG_WINDOW_MS  = 15000;
+PositionSample _posBuf[POSBUF_SIZE];
+size_t _posBufHead  = 0;
+size_t _posBufCount = 0;
+
+void appendPositionSample(double lat, double lon, float alt) {
+    _posBuf[_posBufHead] = {lat, lon, alt, millis()};
+    _posBufHead = (_posBufHead + 1) % POSBUF_SIZE;
+    if (_posBufCount < POSBUF_SIZE) _posBufCount++;
+}
+
+struct AvgPosition { double lat_deg; double lon_deg; float alt_m; bool valid; };
+
+// Average of all samples within the last AVG_WINDOW_MS. `valid=false` if
+// the buffer is empty (pre-first-fix), letting callers fall back to the
+// instantaneous fix.
+AvgPosition computeAvgPosition() {
+    uint32_t now = millis();
+    double sumLat = 0.0, sumLon = 0.0;
+    float  sumAlt = 0.0f;
+    size_t n = 0;
+    for (size_t i = 0; i < _posBufCount; ++i) {
+        const PositionSample& s = _posBuf[(_posBufHead + POSBUF_SIZE - 1 - i) % POSBUF_SIZE];
+        if (now - s.ms > AVG_WINDOW_MS) break;
+        sumLat += s.lat_deg;
+        sumLon += s.lon_deg;
+        sumAlt += s.alt_m;
+        n++;
+    }
+    if (n == 0) return {0, 0, 0, false};
+    return {sumLat / n, sumLon / n, sumAlt / n, true};
+}
+} // namespace
 
 // ---- 4-bit sprite with custom palette --------------------------------------
 //
@@ -163,7 +220,9 @@ void CydDisplay::drawHeader() {
 }
 
 void CydDisplay::drawPresetPill() {
-    uint8_t colorIdx = ageColorIdx(_state.corr_age);
+    // Haptic: pill overrides to accent-blue for FLASH_MS after selectPreset().
+    uint8_t colorIdx = (millis() < _pillFlashUntilMs) ? PI_ACCENT
+                                                      : ageColorIdx(_state.corr_age);
     constexpr int x = 6, y = 26, w = 68, h = 48, r = 6;
     frame.fillRoundRect(x, y, w, h, r, colorIdx);
     frame.fillRect(x + w - r, y, r, h, colorIdx);
@@ -275,16 +334,19 @@ void CydDisplay::drawButtons() {
     frame.setFreeFont(&FreeSansBold12pt7b);
     frame.setTextDatum(MC_DATUM);
 
+    uint32_t now = millis();
     for (int i = 0; i < 4; ++i) {
         int x0 = pad + i * (btnW + pad);
         bool selected = (i == _state.selected);
         bool saved    = _state.preset_saved[i];
+        bool flash    = (now < _buttonFlashUntilMs[i]);   // save-confirmation flash
 
         uint8_t fill, stroke, textCol;
         bool thick;
-        if (selected)   { fill = PI_SURFACE; stroke = PI_ACCENT; textCol = PI_ACCENT;   thick = true;  }
-        else if (saved) { fill = PI_SURFACE; stroke = PI_BORDER; textCol = PI_TEXT;     thick = false; }
-        else            { fill = PI_BG;      stroke = PI_BORDER; textCol = PI_TEXT_DIM; thick = false; }
+        if (flash)           { fill = PI_ACCENT;  stroke = PI_ACCENT; textCol = PI_BLACK;    thick = true;  }
+        else if (selected)   { fill = PI_SURFACE; stroke = PI_ACCENT; textCol = PI_ACCENT;   thick = true;  }
+        else if (saved)      { fill = PI_SURFACE; stroke = PI_BORDER; textCol = PI_TEXT;     thick = false; }
+        else                 { fill = PI_BG;      stroke = PI_BORDER; textCol = PI_TEXT_DIM; thick = false; }
 
         frame.fillRoundRect(x0, y0, btnW, h, 5, fill);
         frame.drawRoundRect(x0, y0, btnW, h, 5, stroke);
@@ -324,6 +386,70 @@ void CydDisplay::rotateFakeState() {
 }
 #endif
 
+// ---- preset NVS persistence + state mutators ------------------------------
+
+void CydDisplay::loadPresetsFromNvs() {
+    char key[8];
+    for (int i = 0; i < 4; ++i) {
+        snprintf(key, sizeof(key), "s%d", i);
+        if (!_prefs.getBool(key, false)) continue;
+        _state.preset_saved[i] = true;
+        snprintf(key, sizeof(key), "lat%d", i);
+        _state.preset_lat[i] = _prefs.getDouble(key, 0.0);
+        snprintf(key, sizeof(key), "lon%d", i);
+        _state.preset_lon[i] = _prefs.getDouble(key, 0.0);
+        snprintf(key, sizeof(key), "alt%d", i);
+        _state.preset_alt[i] = _prefs.getFloat(key, 0.0f);
+        if (i == 0) _autoSavedA = true;   // don't overwrite a user-saved A with the first-fix auto-save
+    }
+}
+
+void CydDisplay::writePresetToNvs(uint8_t i) {
+    if (i >= 4) return;
+    char key[8];
+    snprintf(key, sizeof(key), "s%d", i);
+    _prefs.putBool(key, _state.preset_saved[i]);
+    if (!_state.preset_saved[i]) return;
+    snprintf(key, sizeof(key), "lat%d", i);
+    _prefs.putDouble(key, _state.preset_lat[i]);
+    snprintf(key, sizeof(key), "lon%d", i);
+    _prefs.putDouble(key, _state.preset_lon[i]);
+    snprintf(key, sizeof(key), "alt%d", i);
+    _prefs.putFloat(key, _state.preset_alt[i]);
+}
+
+void CydDisplay::selectPreset(uint8_t i) {
+    if (i >= 4) return;
+    _state.selected = i;
+    _pillFlashUntilMs = millis() + FLASH_MS;
+    Serial.printf("[HUD] select preset %c\n", (char)('A' + i));
+}
+
+void CydDisplay::savePreset(uint8_t i) {
+    if (i >= 4) return;
+    if (!_hasLiveFix) {
+        Serial.printf("[HUD] savePreset %c skipped (no 3D fix yet)\n", (char)('A' + i));
+        return;
+    }
+    // Capture the averaged position at the moment of the long-press so the
+    // saved point isn't biased by a single noisy sample. Fall back to the
+    // instantaneous fix if the rolling window hasn't filled yet.
+    AvgPosition avg = computeAvgPosition();
+    double lat = avg.valid ? avg.lat_deg : _state.lat_deg;
+    double lon = avg.valid ? avg.lon_deg : _state.lon_deg;
+    float  alt = avg.valid ? avg.alt_m   : _state.alt_m;
+
+    _state.preset_saved[i] = true;
+    _state.preset_lat[i]   = lat;
+    _state.preset_lon[i]   = lon;
+    _state.preset_alt[i]   = alt;
+    writePresetToNvs(i);
+    _buttonFlashUntilMs[i] = millis() + FLASH_MS;
+    Serial.printf("[HUD] saved preset %c at %.6f,%.6f,%.2fm (avg of %s)\n",
+                  (char)('A' + i), lat, lon, alt,
+                  avg.valid ? "last 15 s" : "single sample -- buffer cold");
+}
+
 // ---- init + update ---------------------------------------------------------
 
 void CydDisplay::init() {
@@ -354,6 +480,9 @@ void CydDisplay::init() {
     strncpy(_state.wifi_ssid, "--", sizeof(_state.wifi_ssid));
     _state.wifi_rssi = -100;
     strncpy(_state.time_utc, "--:--:--", sizeof(_state.time_utc));
+
+    _prefs.begin(NVS_NAMESPACE, /*readOnly=*/false);
+    loadPresetsFromNvs();
 
 #ifdef CYD_FAKE_STATE
     // Seed fake state so the rotator starts in a sensible place.
@@ -410,26 +539,36 @@ void CydDisplay::update(const GnssData& data) {
         _state.siv      = data.siv;
         _state.corr_age = data.corr_age;
         _state.hdop     = data.pdop / 100.0f;
+        if (data.fix_type >= 3) {
+            _hasLiveFix = true;
+            appendPositionSample(_state.lat_deg, _state.lon_deg, _state.alt_m);
+        }
 
         // Auto-populate preset A on the first 3D fix so the delta band has
-        // something to display during bench-testing -- manual save (Commit 3)
-        // replaces this path once touch is wired.
-        static bool _autoSavedA = false;
-        if (!_autoSavedA && data.fix_type >= 3) {
+        // something to display on fresh boot. Skipped when NVS already holds
+        // a saved slot A (user has their own preset from a prior session).
+        if (!_autoSavedA && _hasLiveFix) {
             _state.preset_saved[0] = true;
             _state.preset_lat[0]   = _state.lat_deg;
             _state.preset_lon[0]   = _state.lon_deg;
             _state.preset_alt[0]   = _state.alt_m;
+            writePresetToNvs(0);
             _autoSavedA = true;
         }
 
-        // Refresh distances to every saved preset (selected one is what the
-        // HUD reads; the others are free to compute and ready for Commit 3).
+        // Delta band uses the 15-second rolling average of the rover's own
+        // position (smoother hero readings). The current cell keeps the
+        // instantaneous fix. Fall back to instant values until the buffer
+        // warms up.
+        AvgPosition avg = computeAvgPosition();
+        double refLat = avg.valid ? avg.lat_deg : _state.lat_deg;
+        double refLon = avg.valid ? avg.lon_deg : _state.lon_deg;
+        float  refAlt = avg.valid ? avg.alt_m   : _state.alt_m;
         for (int i = 0; i < 4; ++i) {
             if (_state.preset_saved[i]) {
-                _state.preset_dh[i] = horizDistM(_state.lat_deg, _state.lon_deg,
+                _state.preset_dh[i] = horizDistM(refLat, refLon,
                                                  _state.preset_lat[i], _state.preset_lon[i]);
-                _state.preset_dv[i] = _state.preset_alt[i] - _state.alt_m;
+                _state.preset_dv[i] = _state.preset_alt[i] - refAlt;
             }
         }
     }

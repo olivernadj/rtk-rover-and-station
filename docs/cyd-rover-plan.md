@@ -63,16 +63,17 @@ Goal: the same HUD but driven by real telemetry. Preset A auto-populates on firs
 
 Goal: the HUD becomes interactive. Tap A/B/C/D selects, long-press A/B/C/D overwrites with current fix. Presets persist across reboot.
 
-- [ ] Add `src/touch_cyd.{h,cpp}` — XPT2046 driver on soft-SPI using `CYD_TOUCH_*` pins already declared in the rover-cyd env's build_flags.
-- [ ] Read loop: non-blocking, polled from `loop()` like every other module.
-- [ ] Calibration: hardcode the 4-corner calibration for this panel at `setRotation(1)` (empirically measured on-device) — document the constants in the source.
-- [ ] Gesture detection: tap (<250 ms press), long-press (≥700 ms press with minimal movement). Debounce.
-- [ ] Hit-test: map touch point → button index A..D using the same geometry as `drawButtons`.
-- [ ] State mutators on `RoverState`: `selectPreset(i)` and `savePreset(i, currentFix)`.
-- [ ] NVS persistence: save/load `saved[4]` + `lat/lon/alt[4]` in the `rover-presets` namespace. Load on boot.
-- [ ] Haptic-ish feedback: flash the pill background briefly on tap; flash the button border briefly on long-press.
-- [ ] Verify: tap cycles through A→D, saved cells update the target cell + ↔/↕. Long-press on an empty slot saves current fix; empty-slot hint disappears.
-- [ ] Power-cycle and confirm presets survive.
+- [x] Add `src/touch_cyd.{h,cpp}` — XPT2046 driver on soft-SPI using `CYD_TOUCH_*` pins already declared in the rover-cyd env's build_flags.
+- [x] Read loop: non-blocking, polled from `loop()` like every other module.
+- [x] Calibration: hardcode the 4-corner calibration for this panel at `setRotation(1)` (empirically measured on-device) — document the constants in the source. *(Initial raw 240..3800 mapping with raw-axis swap works; raw values logged on every touch for later refinement.)*
+- [x] Gesture detection: tap (<250 ms press), long-press (≥700 ms press with minimal movement). Debounce.
+- [x] Hit-test: map touch point → button index A..D using the same geometry as `drawButtons`.
+- [x] State mutators on `RoverState`: `selectPreset(i)` and `savePreset(i, currentFix)`.
+- [x] NVS persistence: save/load `saved[4]` + `lat/lon/alt[4]` in the `rover-presets` namespace. Load on boot.
+- [x] Haptic-ish feedback: flash the pill background briefly on tap; flash the button border briefly on long-press.
+- [x] Verify: tap cycles through A→D, saved cells update the target cell + ↔/↕. Long-press on an empty slot saves current fix; empty-slot hint disappears.
+- [x] Power-cycle and confirm presets survive.
+- [x] **Extra:** rolling 15 s position average used for delta-band dh/dv *and* captured as the saved point on long-press (smoother hero, stable saves).
 - [ ] Commit: `Add XPT2046 touch; A/B/C/D tap to select, long-press to save`.
 
 ---
